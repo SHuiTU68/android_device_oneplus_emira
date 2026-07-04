@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+/*************************************************************
+ ** Copyright (C), 2020-2030, OPPO Mobile Comm Corp., Ltd
+ **
+ ** Description : 1.0
+ **           This is a common file
+ **
+ ** Version: 1.0
+ ** Date created: 12:00, 2024/12/11
+ ** Author: pengxiaoyang@camera.drv
+ **
+ *************************************************************/
+-->
+<manifest version="1.0" type="device">
+    <hal format="aidl">
+        <name>vendor.oplus.hardware.camera_audio</name>
+        <version>1</version>
+        <fqname>ICameraAudioService/default</fqname>
+    </hal>
+</manifest>

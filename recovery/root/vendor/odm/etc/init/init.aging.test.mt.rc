@@ -1,0 +1,43 @@
+service bsp_ddr_vcorefs_aging /odm/bin/init.oplus.bsp_ddr_vcorefs_mtk.sh enable_ddr_vcorefs_test
+    class core
+    user root
+    group root system log
+    stdio_to_kmsg
+    disabled
+    oneshot
+
+service mcdi_stress_test /odm/bin/init.oplus.bsp_ddr_vcorefs_mtk.sh enable_mcdi_stress
+    class core
+    user root
+    group root system log
+    stdio_to_kmsg
+    disabled
+    oneshot
+
+service mm_quick_test /system_ext/bin/mm_quick_test.sh
+    class core
+    user root
+    group root system log
+    stdio_to_kmsg
+    disabled
+    oneshot
+
+
+on property:sys.is_aging_test.enable=1
+    start bsp_ddr_vcorefs_aging
+
+on property:sys.is_aging_test.enable=0
+    stop bsp_ddr_vcorefs_aging
+    write /sys/kernel/helio-dvfsrc/dvfsrc_force_vcore_dvfs_opp 255
+
+on property:sys.is_aging_test.enable=3
+    start mcdi_stress_test
+
+on property:sys.is_aging_test.enable=2
+    stop mcdi_stress_test
+
+on property:sys.is_aging_test.enable=5
+    start mm_quick_test
+
+on property:sys.is_aging_test.enable=4
+    stop mm_quick_test

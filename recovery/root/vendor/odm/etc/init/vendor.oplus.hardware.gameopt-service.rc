@@ -1,0 +1,210 @@
+service gameopt_hal_service-1-0 /odm/bin/hw/vendor.oplus.hardware.gameopt-service
+    class hal
+    user root
+    group system readproc root
+    capabilities SYS_NICE
+    interface aidl vendor.oplus.hardware.gameopt.IGameOptHalService/default
+
+on property:sys.boot_completed=1
+    chmod 0660 /proc/game_opt/cpu_load
+    chmod 0664 /proc/game_opt/cpu_max_freq
+    chmod 0664 /proc/game_opt/cpu_min_freq
+    chmod 0660 /proc/game_opt/render_thread_info
+    chmod 0660 /proc/game_opt/ui_assist_thread
+    chmod 0660 /proc/game_opt/sf_app_wakee_info
+    chmod 0660 /proc/game_opt/rt_info
+    chmod 0660 /proc/game_opt/rt_num
+    chmod 0660 /proc/game_opt/game_pid
+    chmod 0660 /proc/game_opt/heavy_task_info
+    chmod 0660 /proc/game_opt/key_tasks
+    chmod 0660 /proc/game_opt/dstate/dump_enable
+    chmod 0660 /proc/game_opt/dstate/duration
+    chmod 0660 /proc/game_opt/dstate/interested_tids
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/bus_nolimit
+    chmod 0664 /proc/sys/walt/sched_pipeline_pids
+    chmod 0664 /proc/aoss_send_message
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:silver/min_freq
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:silver/max_freq
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:gold/min_freq
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:gold/max_freq
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:prime/min_freq
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:prime/max_freq
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:prime-compute/min_freq
+    chmod 0664 /sys/devices/system/cpu/bus_dcvs/L3/soc:qcom,memlat:l3:prime-compute/max_freq
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/gpu_available_frequencies
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/max_pwrlevel
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/min_pwrlevel
+    chmod 0662 /sys/class/kgsl/kgsl-3d0/perfcounter
+    chmod ug+w /sys/devices/system/cpu/cpufreq/policy?/scaling_governor
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/dvcs_tuning_mincap
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/dvcs_tuning_numbusy
+    chmod 0664 /sys/class/kgsl/kgsl-3d0/dvcs_tuning_penalty
+    chmod 0664 /proc/sys/walt/sched_force_frequent_yielder
+
+on property:ro.soc.model=MT6878
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=MT6835
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=SM6115
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=SM6450
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=SM6225
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2761
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLM110
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=MT6789
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKT110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2603
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=SM8845
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKC110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2659
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKC130
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLB110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLC110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2699
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2671
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKR110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PJH110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2409
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2413
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2415
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2411
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKX110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2607
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2739
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKH110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2409
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2601
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLK110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLG110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLG120
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLZ110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKJ110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKU110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKB110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLJ110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2791
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2506
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=OPD2508
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=SM8750
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=SM7750
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=SM8735
+    stop gameopt_hal_service-1-0
+
+on property:ro.soc.model=MT6993
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLV110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2811
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PLW110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2813
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=PKZ110
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2651
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2747
+    stop gameopt_hal_service-1-0
+
+on property:ro.product.model=CPH2749
+    stop gameopt_hal_service-1-0
+
+on property:vendor.oplus.gameopt.sde.enable=1
+    write /sys/kernel/tracing/events/sde/enable 1
+
+on property:vendor.oplus.gameopt.sde.enable=0
+    write /sys/kernel/tracing/events/sde/enable 0
+
+on property:vendor.oplus.gameopt.perfdog.timerslack=*
+    write /proc/${vendor.oplus.gameopt.perfdog.tid}/timerslack_ns ${vendor.oplus.gameopt.perfdog.timerslack}

@@ -1,0 +1,23 @@
+############################################################################
+## File: - vendor.oplus.hardware.location@1.0-service.rc
+## Copyright (C), 2008-2025, OPLUS Mobile Comm Corp., Ltd
+##
+## Description : 1.0
+##           This is a common file
+##
+## Version: 1.0
+## Date created: 2023/07/01
+## Author: Jiangzi.Yang@CONNECTIVITY.GPS.LOCATION
+## TAG: OPLUS_FEATURE_LOCATION_AIDL
+##
+## ------------------ Revision History: ------------------------------------
+##      <author>         <date>        <version>       <desc>
+##     Jiangzi.Yang     2023/06/15        1.0         creat file
+############################################################################
+service opluslocation_aidl_hal_service /odm/bin/hw/vendor.oplus.hardware.location_aidl-service
+    interface aidl vendor.oplus.hardware.location.IOplusLocation/default
+    class hal
+    user gps
+    group gps
+    oneshot
+    disabled

@@ -1,0 +1,2 @@
+on property:sys.oplus.catqrtrlookup=true
+    exec_background u:r:hal_power_stats_default:s0 system system -- /odm/bin/hw/vendor.oplus.hardware.qrtr-lookup

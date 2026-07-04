@@ -1,0 +1,20 @@
+#############################################################
+## File: - vendor.oplus.hardware.esepower-service
+## Copyright (C), 2008-2020, OPLUS Mobile Comm Corp., Ltd
+##
+## Description : 1.0
+##           This is a common file
+##
+## Version: 1.0
+## Date created: 12:00, 2019/09/20
+## Author: Yukun.Wang@PSW.CONNECTIVITY.Nfc.Basic, 2345426
+##
+## ------------------ Revision History: ---------------------
+##      <author>         <date>                        <desc>
+##     Yukun.Wang  12:00, 2019/09/20  Change nfc config load & compile mechanism
+#############################################################
+
+service oplus_esepower_hal_service /odm/bin/hw/vendor.oplus.hardware.esepower-service
+    class hal
+    user secure_element
+    group secure_element

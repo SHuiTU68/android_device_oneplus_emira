@@ -1,0 +1,70 @@
+on post-fs-data
+    chmod 0666 /mnt/vendor/persist/data/ec2_aging_data.txt
+service vendor.misc-aidl-1  /odm/bin/hw/vendor-oplus-hardware-misc-V1-service
+    class hal
+    capabilities SYS_PTRACE
+    user system
+    group system readproc
+    interface aidl vendor.oplus.hardware.misc.IOplusMisc/default
+on boot
+    chown system system /proc/pogopin/kbd_battery_power_level
+    chmod 0644 /proc/pogopin/kbd_battery_power_level
+    chown system system /proc/pogopin/kbd_battery_charge_current
+    chmod 0644 /proc/pogopin/kbd_battery_charge_current
+    chown system system /proc/pogopin/health_monitor
+    chmod 0664 /proc/pogopin/health_monitor
+    chown system system /proc/pogopin/kbd_debug
+    chmod 0664 /proc/pogopin/kbd_debug
+    chown system system /sys/class/leds/fan/state
+    chmod 0664 /sys/class/leds/fan/state
+    chown system system /sys/class/leds/fan/speed
+    chmod 0664 /sys/class/leds/fan/speed
+    chown system system /sys/class/leds/fan/rpm
+    chmod 0664 /sys/class/leds/fan/rpm
+    chown system system /sys/class/leds/fan/level
+    chmod 0664 /sys/class/leds/fan/level
+    chown system system /sys/class/leds/fan/check_period
+    chmod 0664 /sys/class/leds/fan/check_period
+    chown system system /sys/class/ex_gpio/chipid
+    chmod 0644 /sys/class/ex_gpio/chipid
+    chown system system /sys/class/ex_gpio/reg
+    chmod 0644 /sys/class/ex_gpio/reg
+    chown system system /sys/class/ex_gpio/get_gpio_status
+    chmod 0644 /sys/class/ex_gpio/get_gpio_status
+    chown system system /sys/class/ex_gpio/monitor_info
+    chmod 0644 /sys/class/ex_gpio/monitor_info
+    chown system system /sys/class/ex_gpio/r_reg
+    chmod 0644 /sys/class/ex_gpio/r_reg
+    chown system system /sys/class/qcom-haptics/check_trig_status
+    chmod 0664 /sys/class/qcom-haptics/check_trig_status
+    chown system system /sys/class/leds/vibrator/check_trig_status
+    chmod 0664 /sys/class/leds/vibrator/check_trig_status
+    chown system system /sys/class/leds/aw22xxx_led/rgb
+    chmod 0664 /sys/class/leds/aw22xxx_led/rgb
+    chown system system /sys/class/leds/aw22xxx_led/effect
+    chmod 0664 /sys/class/leds/aw22xxx_led/effect
+    chown system system /sys/class/leds/aw22xxx_led/cfg
+    chmod 0664 /sys/class/leds/aw22xxx_led/cfg
+    chown system system /sys/class/leds/aw22xxx_led/group_rgb
+    chmod 0664 /sys/class/leds/aw22xxx_led/group_rgb
+    chown system system /sys/class/leds/aw22xxx_led/group_effect
+    chmod 0664 /sys/class/leds/aw22xxx_led/group_effect
+    chown system system /sys/class/leds/aw22xxx_led/group_cfg
+    chmod 0664 /sys/class/leds/aw22xxx_led/group_cfg
+    chown system system /sys/class/leds/aw22xxx_led/group_brightness
+    chmod 0664 /sys/class/leds/aw22xxx_led/group_brightness
+    chown system system /sys/class/leds/aw22xxx_led/abnormal_reset_count
+    chmod 0664 /sys/class/leds/aw22xxx_led/abnormal_reset_count
+    chown system system /sys/class/leds/aw22xxx_led/funcpme_irq_count
+    chmod 0664 /sys/class/leds/aw22xxx_led/funcpme_irq_count
+    chown system system /sys/class/leds/aw22xxx_led/wtd_irq_count
+    chmod 0664 /sys/class/leds/aw22xxx_led/wtd_irq_count
+    chown system system /sys/class/leds/aw22xxx_led/check_period
+    chmod 0664 /sys/class/leds/aw22xxx_led/check_period
+on post-fs-data
+    chown system system /sys/class/leds/fan/device_id
+    chmod 0664 /sys/class/leds/fan/device_id
+    chown system system /sys/class/leds/fan/rpm_table
+    chmod 0664 /sys/class/leds/fan/rpm_table
+    chown system system /sys/class/leds/aw22xxx_led/back_color
+    chmod 0664 /sys/class/leds/aw22xxx_led/back_color

@@ -1,0 +1,4 @@
+service nfc_hal_service.tms.aidl /odm/bin/hw/android.hardware.nfc-service-tms
+    class hal
+    user nfc
+    group nfc

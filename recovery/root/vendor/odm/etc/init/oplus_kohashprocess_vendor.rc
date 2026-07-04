@@ -1,0 +1,27 @@
+##########################################################
+# Copyright (C), 2025-2055, OPLUS Mobile Comm Corp., Ltd
+# VENDOR_EDIT
+# File: oplus_kohashprocess_vendor.rc
+#
+# Description:
+#	Definitions for oplus_kohashprocess_vendor.rc.
+#
+# Version: 1.0
+# Date created: 2025/08/10
+# Author: cen jun@Amber Security Lab
+#
+# --------------------------- Revision History: -------------
+# <version>	 	     <date>		 <author>     <desc>
+# Revision 1.0		2025/08/10	  cen jun	   Created
+#######################################################
+
+service oplus_kohash_vnd /odm/bin/oplus_kohashprocess_vendor
+    class late_start
+    user system
+    group root system
+    disabled
+    oneshot
+
+on property:oplus.device.firstboot=* && property:sys.boot_completed=1 && property:vendor.all.modules.ready=1
+    mkdir /data/vendor/persist_hash 0770 system system
+    start oplus_kohash_vnd

@@ -1,0 +1,4 @@
+service nfcExtnsService /odm/bin/hw/vendor.oplus.hardware.nfcExtns-service
+    class hal
+    user  system
+    group nfc system

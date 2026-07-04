@@ -1,0 +1,86 @@
+# init.recovery.usb.rc — emira (MT6991) USB configfs support
+#
+# MTK mtu3 控制器的特殊行为：
+#   - 写 "none" 到 UDC 不能解绑（报 No such device）
+#   - 必须写空字符串 "" 才能解绑 UDC
+#   - 不先解绑就写控制器地址会报 Device or resource busy
+#   - 因此每次重配 gadget 前必须先 echo "" > UDC
+
+on fs
+    mkdir /dev/usb-ffs 0775 shell shell
+    mkdir /dev/usb-ffs/mtp 0770 shell shell
+    mkdir /config/usb_gadget/g1/functions/ffs.mtp
+    mount functionfs mtp /dev/usb-ffs/mtp uid=1024,gid=1024,rmode=0770,fmode=0660,no_disconnect=1
+    symlink /dev/usb-ffs/mtp/ep0 /dev/mtp_usb
+
+# ── MTP 启用：OrangeFox MTP server 已就绪，重配 gadget ────────────
+on property:sys.usb.ffs.mtp.ready=1
+    write /config/usb_gadget/g1/UDC ""
+    rm /config/usb_gadget/g1/configs/b.1/f1
+    rm /config/usb_gadget/g1/configs/b.1/f2
+    start adbd
+    write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "mtp_adb"
+    write /config/usb_gadget/g1/idVendor 0x2717
+    write /config/usb_gadget/g1/idProduct 0xFF48
+    symlink /config/usb_gadget/g1/functions/ffs.mtp /config/usb_gadget/g1/configs/b.1/f1
+    symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f2
+    write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+    setprop sys.usb.config mtp,adb
+    setprop sys.usb.state mtp,adb
+
+# ── MTP 禁用：恢复 ADB-only ─────────────────────────────────────
+on property:sys.usb.ffs.mtp.ready=0
+    write /config/usb_gadget/g1/UDC ""
+    rm /config/usb_gadget/g1/configs/b.1/f1
+    rm /config/usb_gadget/g1/configs/b.1/f2
+    write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "adb"
+    write /config/usb_gadget/g1/idVendor 0x18D1
+    write /config/usb_gadget/g1/idProduct 0xD001
+    symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f1
+    start adbd
+    write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+    setprop sys.usb.config adb
+    setprop sys.usb.state adb
+
+# ── fastbootd 预清理：在 vendor configfs handler 之前解绑 UDC ──────
+# vendor init.rc 的 fastboot configfs handler 需要 ffs.ready=1 才触发，
+# 此 handler 不要求 ffs.ready，所以先触发：解绑 UDC 并清理旧链接。
+# 之后 fastbootd 设置 ffs.ready=1 时，vendor handler 配置 gadget 并绑定
+# （此时 UDC 已解绑，绑定不会报 Device or resource busy）。
+on property:sys.usb.config=fastboot && property:sys.usb.configfs=1
+    write /config/usb_gadget/g1/UDC ""
+    rm /config/usb_gadget/g1/configs/b.1/f1
+    rm /config/usb_gadget/g1/configs/b.1/f2
+    rm /config/usb_gadget/g1/configs/b.1/f3
+    setprop sys.usb.ffs.ready 0
+
+# ── USB 断开：覆盖 system init.rc 中写 "none" 的错误行为 ─────────
+on property:sys.usb.config=none && property:sys.usb.configfs=1
+    write /config/usb_gadget/g1/UDC ""
+    stop adbd
+    stop fastbootd
+    setprop sys.usb.ffs.ready 0
+    rm /config/usb_gadget/g1/configs/b.1/f1
+    rm /config/usb_gadget/g1/configs/b.1/f2
+    setprop sys.usb.state ${sys.usb.config}
+
+# ── ADB Sideload 阶段1：启动 adbd 守护进程 ───────────────────────
+# 必须先启动 adbd，它才会设置 sys.usb.ffs.ready=1
+on property:sys.usb.config=sideload && property:sys.usb.configfs=1
+    write /config/usb_gadget/g1/UDC ""
+    rm /config/usb_gadget/g1/configs/b.1/f1
+    rm /config/usb_gadget/g1/configs/b.1/f2
+    start adbd
+
+# ── ADB Sideload 阶段2：adbd 就绪后配置 gadget 并绑定 UDC ────────
+on property:sys.usb.ffs.ready=1 && property:sys.usb.config=sideload && property:sys.usb.configfs=1
+    write /config/usb_gadget/g1/configs/b.1/strings/0x409/configuration "adb"
+    write /config/usb_gadget/g1/idVendor 0x18D1
+    write /config/usb_gadget/g1/idProduct 0xD001
+    symlink /config/usb_gadget/g1/functions/ffs.adb /config/usb_gadget/g1/configs/b.1/f1
+    write /config/usb_gadget/g1/UDC ${sys.usb.controller}
+    setprop sys.usb.state ${sys.usb.config}
+
+# ── 兜底：OrangeFox 通过 sys.usb.config 切换 ─────────────────────
+on property:sys.usb.config=mtp,adb && property:sys.usb.configfs=1
+    start adbd

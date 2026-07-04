@@ -1,0 +1,13 @@
+#
+# Copyright (c) 2020-2021 Oplus Technology(Shanghai) Corp., Ltd.
+# All Rights Reserved
+#
+
+service powermodel-hal-aidl /odm/bin/hw/vendor.oplus.hardware.powermodel-service
+    class hal
+    user root
+    group root readproc system
+    capabilities SYS_NICE
+    interface aidl vendor.oplus.hardware.powermodel.IPowerModel/default
+    disabled
+    oneshot

@@ -1,0 +1,10 @@
+<!--
+    Input:
+        vendor/oplus/secure/biometrics/payment/bsp/vendor/mtk/wechatpay/xml/manifest_soter_aidl.xml
+-->
+<manifest version="8.0" type="device">
+    <hal format="aidl">
+        <name>vendor.trustonic.hardware.soter</name>
+        <fqname>ITrustonicSoter/default</fqname>
+    </hal>
+</manifest>

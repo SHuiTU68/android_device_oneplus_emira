@@ -1,0 +1,11 @@
+<!--
+    Input:
+        vendor/oplus/multimedia/display/cwb/aidl/xml/manifest_oplus_cwb_aidl.xml
+-->
+<manifest version="8.0" type="device">
+    <hal format="aidl">
+        <name>vendor.oplus.hardware.cwb</name>
+        <version>2</version>
+        <fqname>ICwbService/default</fqname>
+    </hal>
+</manifest>

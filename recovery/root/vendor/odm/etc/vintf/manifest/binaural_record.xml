@@ -1,0 +1,8 @@
+
+<manifest version="1.0" type="device">
+    <hal format="aidl">
+        <name>vendor.oplus.hardware.binaural_record</name>
+        <version>1</version>
+        <fqname>IBinauralRecordProviderFactory/default</fqname>
+    </hal>
+</manifest>

@@ -1,0 +1,64 @@
+# TWRP/OrangeFox Recovery fstab — mt6991
+# 格式：挂载点  文件系统  块设备  标志
+#
+# 注意：此文件为 TWRP 界面中"挂载"菜单使用的分区表
+# 第一阶段挂载表（内核 ramdisk 用）请看：
+#   vendor_ramdisk/first_stage_ramdisk/fstab.mt6991
+# （该文件需要从原厂 vendor_boot platform ramdisk 中提取）
+
+# ── 逻辑分区（super 内，只读 EROFS）──
+/system             erofs   system                  flags=display=system;fsflags=ro;logical;slotselect
+/system_ext         erofs   system_ext              flags=display=system_ext;fsflags=ro;logical;slotselect
+/system_dlkm        erofs   system_dlkm             flags=display=system_dlkm;fsflags=ro;logical;slotselect
+/vendor             erofs   vendor                  flags=display=vendor;fsflags=ro;logical;slotselect
+/product            erofs   product                 flags=display=product;fsflags=ro;logical;slotselect
+/odm                erofs   odm                     flags=display=odm;fsflags=ro;logical;slotselect
+/vendor_dlkm        erofs   vendor_dlkm             flags=display=vendor_dlkm;fsflags=ro;logical;slotselect
+/odm_dlkm           erofs   odm_dlkm                flags=display=odm_dlkm;fsflags=ro;logical;slotselect
+
+# OPLUS my_* 逻辑分区
+/my_bigball         erofs   my_bigball              flags=display=my_bigball;fsflags=ro;logical;slotselect
+/my_carrier         erofs   my_carrier              flags=display=my_carrier;fsflags=ro;logical;slotselect
+/my_company         erofs   my_company              flags=display=my_company;fsflags=ro;logical;slotselect
+/my_engineering     erofs   my_engineering          flags=display=my_engineering;fsflags=ro;logical;slotselect
+/my_heytap          erofs   my_heytap               flags=display=my_heytap;fsflags=ro;logical;slotselect
+/my_manifest        erofs   my_manifest             flags=display=my_manifest;fsflags=ro;logical;slotselect
+/my_preload         erofs   my_preload              flags=display=my_preload;fsflags=ro;logical;slotselect
+/my_product         erofs   my_product              flags=display=my_product;fsflags=ro;logical;slotselect
+/my_region          erofs   my_region               flags=display=my_region;fsflags=ro;logical;slotselect
+/my_stock           erofs   my_stock                flags=display=my_stock;fsflags=ro;logical;slotselect
+
+# ── 数据分区 ──
+# 加密参数：FBE v2，aes-256-xts 内容加密 + aes-256-cts 文件名加密
+# 加密参数：从原厂 first_stage_ramdisk/fstab.mt6991 原样提取
+/data               f2fs    /dev/block/by-name/userdata     flags=display=data;fsflags=noatime,nosuid,nodev,discard,noflush_merge,fsync_mode=nobarrier,reserve_root=134217,resgid=1065,inlinecrypt;fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized;keydirectory=/metadata/vold/metadata_encryption;fsverity
+
+# ── 系统支撑分区 ──
+/metadata           f2fs    /dev/block/by-name/metadata     flags=display=metadata
+/persist            ext4    /dev/block/by-name/persist      flags=display=persist
+/protect_f          ext4    /dev/block/by-name/protect1     flags=display=protect_f
+/protect_s          ext4    /dev/block/by-name/protect2     flags=display=protect_s
+/nvdata             ext4    /dev/block/by-name/nvdata       flags=display=nvdata
+/nvcfg              ext4    /dev/block/by-name/nvcfg        flags=display=nvcfg
+
+# ── 原始（RAW）分区 ──
+/persistent         emmc    /dev/block/by-name/frp          flags=display=persistent
+/nvram              emmc    /dev/block/by-name/nvram        flags=display=nvram
+/proinfo            emmc    /dev/block/by-name/proinfo      flags=display=proinfo
+/boot               emmc    /dev/block/by-name/boot         flags=display=boot;slotselect
+/init_boot          emmc    /dev/block/by-name/init_boot    flags=display=init_boot;slotselect
+/dtbo               emmc    /dev/block/by-name/dtbo         flags=display=dtbo;slotselect;backup=1;flashimg=1
+/vbmeta             emmc    /dev/block/by-name/vbmeta       flags=display=vbmeta;slotselect;backup=1;flashimg=1
+/vbmeta_system      emmc    /dev/block/by-name/vbmeta_system  flags=display=vbmeta_system;slotselect;backup=1;flashimg=1
+/vbmeta_vendor      emmc    /dev/block/by-name/vbmeta_vendor  flags=display=vbmeta_vendor;slotselect;backup=1;flashimg=1
+/logo               emmc    /dev/block/by-name/logo_a       flags=display=logo
+/tee                emmc    /dev/block/by-name/tee_a        flags=display=tee
+/lk                 emmc    /dev/block/by-name/lk_a         flags=display=lk
+/misc               emmc    /dev/block/by-name/misc         flags=display=misc
+/expdb              emmc    /dev/block/by-name/expdb        flags=display=expdb
+/seccfg             emmc    /dev/block/by-name/seccfg       flags=display=seccfg
+/otp                emmc    /dev/block/by-name/otp          flags=display=otp
+/gz                 emmc    /dev/block/by-name/gz_a         flags=display=gz
+
+# 外置 SD 卡（如有）
+/external_sd        vfat    /dev/block/mmcblk0p1            flags=display=external_sd

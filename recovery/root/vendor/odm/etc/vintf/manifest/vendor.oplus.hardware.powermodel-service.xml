@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+/*************************************************************
+ ** File: - vendor.oplus.hardware.powermodel-service.xml
+ ** Copyright (C), 2019-2029, OPLUS Mobile Comm Corp., Ltd
+ **
+ ** Description : 1.0
+ **           add for PowerModel
+ **
+ ** Version: 1.0
+ ** Date created: 12:00, 2024/05/03
+ ** Author:
+ **     Leyang.Li@CTG.PERF
+ *************************************************************/
+-->
+<manifest version="1.0" type="device">
+    <hal format="aidl">
+        <name>vendor.oplus.hardware.powermodel</name>
+        <version>1</version>
+        <fqname>IPowerModel/default</fqname>
+    </hal>
+</manifest>

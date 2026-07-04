@@ -1,0 +1,22 @@
+##/*************************************************************
+## ** File: - vendor.oplus.hardware.alipay.antdtx@1.0-service.rc
+## ** OPLUS_FEATURE_FINGERPRINTPAY
+## ** Copyright (C), 2016-2020, OPLUS Mobile Comm Corp., Ltd
+## **
+## ** Description : 1.0
+## **           This is a common file
+## **
+## ** Version: 1.0
+## ** Date created: 11:00, 2022/07/04
+## ** Author: Shilei.Song@PSW.BSP.Fingerprint.Basic
+## **
+## ** ------------------ Revision History: ---------------------
+## **      <author>        <date>                    <desc>
+## **   Shilei.Song       11:00, 2022/07/04      creat file for riskdetect
+## *************************************************************/
+
+service riskdetect /odm/bin/hw/vendor.oplus.hardware.riskdetect-V1-service
+    class late_start
+    user system
+    group system input sdcard_rw sdcard_r
+    interface aidl vendor.oplus.hardware.riskdetect.IRiskDetect/default

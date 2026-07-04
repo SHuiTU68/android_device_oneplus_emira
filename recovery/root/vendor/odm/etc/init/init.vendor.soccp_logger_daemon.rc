@@ -1,0 +1,12 @@
+service soccp_logger_qxdm /system/vendor/bin/diag_mdlog -p 0x10000 -f /vendor/odm/etc/charge.cfg -o /data/vendor/oplus/log/device_log/diag_logs/charger -s 128 -n 2 -u
+    class core
+    user system
+    group system sdcard_rw sdcard_r media_rw
+    disabled
+    oneshot
+
+on property:vendor.oplus.soccp_logger=start
+    start soccp_logger_qxdm
+
+on property:vendor.oplus.soccp_logger=stop
+    stop soccp_logger_qxdm

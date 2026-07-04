@@ -1,0 +1,6 @@
+service slc_hal_service /odm/bin/hw/vendor.oplus.hardware.slchalservice-service
+    class hal
+    user system
+    group system readproc root
+    capabilities SYS_NICE
+    interface aidl vendor.oplus.hardware.slchalservice.ISlcHalService/default

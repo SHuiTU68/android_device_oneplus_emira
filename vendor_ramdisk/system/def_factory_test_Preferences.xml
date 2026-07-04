@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<map>
+<boolean name="sblAgingTestSwitch" value="true"/>
+<boolean name="ddrAgingTestSwitch" value="true"/>
+<boolean name="flashAgingTestSwitch" value="true"/>
+<boolean name="AgingVersion2.0" value="true"/>
+</map>

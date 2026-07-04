@@ -1,0 +1,5 @@
+service transmessage-V1 /odm/bin/hw/vendor-oplus-hardware-transmessage-V1-service
+    class main
+    user system
+    group system wifi mediadrm radio
+    interface aidl vendor.oplus.hardware.transmessage.ITransmessge/default

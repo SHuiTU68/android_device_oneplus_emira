@@ -1,0 +1,200 @@
+# import 原厂 rc 文件（需从设备提取，放入 recovery/root/）
+# tee.rc    : 创建 persist 挂载点和目录结构
+# trustonic.rc : 定义 mobicore 服务（含 MT6991 专属 .drbin 列表）
+import /tee.rc
+import /trustonic.rc
+# import /vendor/etc/init/android.hardware.secure_element@1.2-service-mediatek.rc
+import /vendor/odm/etc/init/vendor.oplus.hardware.esepower-service.rc
+import /vendor/odm/etc/init/vendor.oplus.hardware.secure_element-service.rc
+
+on init
+    setprop sys.usb.configfs 1
+    # USB 控制器地址（来自 getprop sys.usb.controller）
+    setprop sys.usb.controller "16701000.usb0"
+    setprop sys.usb.ffs.aio_compat 1
+    # Keep recovery/system libraries first. Some stock vendor libraries have the
+    # same SONAME as recovery libraries but lack old symbols required by TWRP.
+    export LD_LIBRARY_PATH /system/lib64:/system/lib:/vendor/lib64:/vendor/lib:/odm/lib64:/odm/lib:/vendor/odm/lib64:/vendor/odm/lib:/sbin
+    # persist 挂载点由 tee.rc 创建，这里提前建父目录
+    mkdir /mnt/vendor 0755 root root
+    setprop ro.board.api_level 202404
+    setprop ro.board.api_frozen true
+    setprop ro.product.first_api_level 35
+
+on fs
+#    install_keyring
+
+# 元数据加密需要 vold 提前启动
+on early-fs
+    # DEBUG: vold service is not defined in this ramdisk yet; avoid noisy failures.
+    # start vold
+
+on late-fs
+    # 等待 KeyMint 服务就绪（解密 data 的前提）
+    # 暂时跳过阻塞等待，先验证 recovery UI 能否启动。
+    # exec_start wait_for_keymaster
+
+on post-fs
+    # 挂载 persist 供 mobicore 使用（tee.rc 里创建了目录，但不挂载）
+    mount ext4 /dev/block/by-name/persist /mnt/vendor/persist rw
+    # 同时挂载到 /persist，解决 OrangeFox Mount_By_Path("/persist") EBUSY 问题
+    mkdir /persist 0755 root root
+    mount ext4 /dev/block/by-name/persist /persist rw
+
+    # 挂载 odm 分区（mobicore 需要 /odm/vendor/app/mcRegistry/ 下的 .drbin 文件）
+    # mount erofs /dev/block/mapper/odm_a /odm ro
+
+    # MT6991 UFS 控制器地址（已确认）
+    symlink /dev/block/platform/soc/16810000.ufshci /dev/block/platform/bootdevice
+    # 启动 MTK 平台路径工具
+    start mtk.plpath.utils.link
+
+    # 支持 UFS Boot Region 的 A/B 功能
+    # sda = UFS Boot Region A (preloader_a)
+    # sdb = UFS Boot Region B (preloader_b)
+
+    symlink /dev/block/sda /dev/block/mmcblk0boot0
+    symlink /dev/block/sdb /dev/block/mmcblk0boot1
+    symlink /dev/block/mmcblk0boot0 /dev/block/platform/bootdevice/by-name/preloader_a
+    symlink /dev/block/mmcblk0boot1 /dev/block/platform/bootdevice/by-name/preloader_b
+
+    # 兼容 EMMC/UFS 组合 OTA
+    symlink /dev/block/platform/bootdevice/by-name/preloader_a /dev/block/platform/bootdevice/by-name/preloader_emmc_a
+    symlink /dev/block/platform/bootdevice/by-name/preloader_b /dev/block/platform/bootdevice/by-name/preloader_emmc_b
+    symlink /dev/block/platform/bootdevice/by-name/preloader_a /dev/block/platform/bootdevice/by-name/preloader_ufs_a
+    symlink /dev/block/platform/bootdevice/by-name/preloader_b /dev/block/platform/bootdevice/by-name/preloader_ufs_b
+
+    symlink /dev/block/platform/bootdevice/by-name/preloader_a /dev/block/by-name/preloader_emmc_a
+    symlink /dev/block/platform/bootdevice/by-name/preloader_b /dev/block/by-name/preloader_emmc_b
+    symlink /dev/block/platform/bootdevice/by-name/preloader_a /dev/block/by-name/preloader_ufs_a
+    symlink /dev/block/platform/bootdevice/by-name/preloader_b /dev/block/by-name/preloader_ufs_b
+
+    # Trustonic TEE device nodes must be accessible before starting MobiCore.
+    chown system system /dev/mobicore
+    chmod 0600 /dev/mobicore
+    chown system system /dev/mobicore-user
+    chmod 0666 /dev/mobicore-user
+    chown system system /dev/t-base-tui
+    chmod 0666 /dev/t-base-tui
+    chown system system /dev/teeperf
+    chmod 0666 /dev/teeperf
+
+    # TEE registry and ODM trustlets are available after post-fs mounts.
+    setprop crypto.ready 1
+
+# MTK 平台路径工具服务
+service mtk.plpath.utils.link /system/bin/mtk_plpath_utils
+    class main
+    user root
+    group root system
+    disabled
+    oneshot
+    seclabel u:r:recovery:s0
+
+service wait_for_keymaster /system/bin/wait_for_keymaster
+    user root
+    group root system
+    priority -20
+    ioprio rt 0
+    disabled
+    seclabel u:r:recovery:s0
+
+# ── Boot Control HAL（fastbootd 依赖此服务）────────────────────────
+# vendor_ramdisk init.rc 定义的是 /system/bin/hw/..._recovery 路径，
+# 但 recovery root 里二进制实际在 /vendor/bin/hw/，需要重新定义。
+service vendor.boot-default /vendor/bin/hw/android.hardware.boot-service.mtk
+    class early_hal
+    user root
+    group root
+    setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
+    seclabel u:r:recovery:s0
+    interface aidl android.hardware.boot.IBootControl/default
+
+# ── Health HAL AIDL（fastbootd 依赖此服务）─────────────────────────
+# 覆盖 AOSP 自带 recovery rc 的 service 定义：
+# 1. SELinux context 改为 recovery（hal_health_default 在 recovery 下无 sysfs 读权限）
+# 2. AOSP 编译的 recovery 二进制安装到 /system/bin/hw/
+service vendor.health-default /system/bin/hw/android.hardware.health-service.example_recovery
+    class hal
+    user system
+    group system
+    capabilities WAKE_ALARM BLOCK_SUSPEND
+    seclabel u:r:recovery:s0
+    interface aidl android.hardware.health.IHealth/default
+
+# ── Trustonic 加密服务 ────────────────────────────────────────────────
+# 来源：/vendor/etc/init/android.hardware.security.keymint@3.0-service.trustonic.rc
+# 服务名、二进制路径、用户组均与原厂一致
+service vendor.keymint-trustonic /vendor/bin/hw/android.hardware.security.keymint@3.0-service.trustonic
+    class early_hal
+    interface aidl android.hardware.security.keymint.IKeyMintDevice/default
+    interface aidl android.hardware.security.keymint.IRemotelyProvisionedComponent/default
+    user system
+    group system
+    disabled
+    setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
+    seclabel u:r:recovery:s0
+
+# 来源：/vendor/etc/init/android.hardware.gatekeeper-service.trustonic.rc
+# 关键：gatekeeper 不能手动 start，必须等 mobicore 设置
+# ro.vendor.trustonic.ready=true 后自动触发
+service vendor.gatekeeper-default /vendor/bin/hw/android.hardware.gatekeeper-service.trustonic
+    class early_hal
+    interface aidl android.hardware.gatekeeper.IGatekeeper/default
+    user system
+    group system
+    disabled
+    setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
+    seclabel u:r:recovery:s0
+
+# ── 启动序列 ─────────────────────────────────────────────────────────
+# 步骤 1：crypto.ready=1 → 启动 mobicore 和 keymint
+# 步骤 2：mobicore 就绪后设置 ro.vendor.trustonic.ready=true
+# 步骤 3：ro.vendor.trustonic.ready=true → 触发 gatekeeper 启动
+# 步骤 4：vold 使用 keymint + gatekeeper 解密 data
+
+on property:crypto.ready=1
+    start mobicore
+    start vendor.keymint-trustonic
+
+# gatekeeper 在 mobicore 就绪后才能启动（原厂设计如此）
+on property:ro.vendor.trustonic.ready=true
+    start vendor.gatekeeper-default
+    # NXP Weaver refuses requests until sys.boot_completed is true.
+    # Recovery has no framework boot-complete phase, so set it before using Weaver.
+    setprop sys.boot_completed 1
+    start oplus_esepower_hal_service
+    start secure_element-1-0
+#     start mtk_secure_element_hal_service
+    start vendor.weaver_nxp
+
+on property:hwservicemanager.ready=true
+    # KeyMint depends on post-fs mounts; crypto.ready starts it after those exist.
+
+# 解密完成或不需要加密时，停止所有 TEE 服务
+on property:ro.crypto.state=unsupported
+    stop mobicore
+    stop vendor.keymint-trustonic
+    stop vendor.gatekeeper-default
+    stop vendor.weaver_nxp
+
+on property:ro.crypto.state=unencrypted
+    stop mobicore
+    stop vendor.keymint-trustonic
+    stop vendor.gatekeeper-default
+    stop vendor.weaver_nxp
+
+on property:twrp.decrypt.done=true
+    stop mobicore
+    stop vendor.keymint-trustonic
+    stop vendor.gatekeeper-default
+    stop vendor.weaver_nxp
+
+on property:crypto.ready=0
+    stop mobicore
+    stop vendor.keymint-trustonic
+    stop vendor.gatekeeper-default
+    stop vendor.weaver_nxp
+
+on boot
+    setprop sys.usb.config adb

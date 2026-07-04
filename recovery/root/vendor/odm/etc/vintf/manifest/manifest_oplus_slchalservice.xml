@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+/*************************************************************
+ **
+ ** Copyright (C), 2008-2020, OPLUS Mobile Comm Corp., Ltd
+ **
+ ** Description : 1.0
+ **           add for slc hal service
+ **
+ ** Version: 1.0
+ ** Date created: 12:00, 2024/03/21
+ ** Author: Rock lin
+ **
+ *************************************************************/
+-->
+<manifest version="1.0" type="device">
+    <hal format="aidl">
+        <name>vendor.oplus.hardware.slchalservice</name>
+        <version>1</version>
+        <fqname>ISlcHalService/default</fqname>
+    </hal>
+</manifest>

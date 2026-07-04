@@ -1,0 +1,20 @@
+#############################################################
+## File: - vendor.oplus.hardware.nfc@1.0-service.rc
+## Copyright (C), 2008-2020, OPLUS Mobile Comm Corp., Ltd
+##
+## Description : 1.0
+##           This is a common file
+##
+## Version: 1.0
+## Date created: 12:00, 2019/09/20
+## Author: Yukun.Wang@PSW.CONNECTIVITY.Nfc.Basic, 2345426
+##
+## ------------------ Revision History: ---------------------
+##      <author>         <date>                        <desc>
+##     Yukun.Wang  12:00, 2019/09/20  Change nfc config load & compile mechanism
+##     Wenjie.Liu  21:00,2022/12/19   modify AIdl server Name
+#############################################################
+service oplusnfc_aidl_hal_service /odm/bin/hw/vendor.oplus.hardware.nfc_aidl-service
+    class hal
+    user nfc
+    group nfc
