@@ -2,7 +2,7 @@
 # OrangeFox Recovery 配置 — OnePlus Ace5 Ultra (OP60EDL1)
 #
 
-FOX_VARIANT := c15
+FOX_VARIANT := c16
 OF_MAINTAINER := SHuiTU68
 FOX_BUILD_TYPE := Unofficial
 

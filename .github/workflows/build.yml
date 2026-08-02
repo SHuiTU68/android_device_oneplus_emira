@@ -1,33 +1,97 @@
 name: Build OrangeFox Recovery
 
 on:
-  workflow_dispatch:    # 手动触发
+  workflow_dispatch:
   push:
     branches: [device_OP60EDL1]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/azwhikaru/twrp-builder:latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
 
     steps:
-      - name: 检出设备树
-        uses: actions/checkout@v4
-        with:
-          path: device/oplus/OP60EDL1
+      - name: Cleanup Actions Workspace
+        uses: rokibhasansagar/slimhub_actions@main
 
-      - name: 编译 Recovery
+      - name: 准备编译环境
         run: |
-          . build/envsetup.sh
-          lunch twrp_OP60EDL1-eng
-          mka recoveryimage adbd
+          sudo apt update && sudo apt upgrade -y
+          DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
+            git python3 tar aria2
+          git clone https://gitlab.com/OrangeFox/misc/scripts
+          cd scripts
+          sudo bash setup/android_build_env.sh
+          sed -i 's/cd -/cd ../g' setup/install_android_sdk.sh
+          sudo bash setup/install_android_sdk.sh
 
-      - name: 上传编译产物
+      - name: 安装 OpenJDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '11'
+
+      - name: 创建工作目录
+        id: pwd
+        run: |
+          mkdir -p workspace
+          echo "workspace-folder=$(pwd)/workspace" >> $GITHUB_OUTPUT
+
+      - name: 同步 OrangeFox 源码
+        run: |
+          git clone https://gitlab.com/OrangeFox/sync.git
+          cd sync
+          ./orangefox_sync.sh --branch 12.1 --path ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1
+
+      - name: 检出设备树
+        run: |
+          git clone ${{ github.server_url }}/${{ github.repository }} \
+            -b ${{ github.ref_name }} \
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/device/oplus/OP60EDL1
+
+      - name: 设置 Swap
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 12
+
+      - name: 编译 OrangeFox Recovery
+        run: |
+          cd ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1
+          source build/envsetup.sh
+          export ALLOW_MISSING_DEPENDENCIES=true
+          lunch twrp_OP60EDL1-eng
+          make clean
+          mka adbd vendorbootimage -j$(nproc --all)
+        continue-on-error: true
+
+      - name: 检查编译产物
+        run: |
+          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/ || true
+
+      - name: 上传编译产物（Artifact）
         uses: actions/upload-artifact@v4
         with:
           name: OrangeFox-OP60EDL1
           path: |
-            out/target/product/OP60EDL1/*.img
-            out/target/product/OP60EDL1/obj/PACKAGING/target_files_intermediates/*.zip
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/vendor_boot.img
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/*.zip
           if-no-files-found: warn
+
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          files: |
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/vendor_boot.img
+          name: OrangeFox-OP60EDL1-${{ github.run_id }}
+          tag_name: ${{ github.run_id }}
+          body: |
+            OrangeFox Recovery for OnePlus Ace5 Ultra (OP60EDL1)
+            - 编译分支: ${{ github.ref_name }}
+            - 提交: ${{ github.sha }}
+            - FOX_VARIANT: c16
+            - 基于 Android 12.1 (OrangeFox 12.1)
+            - 刷入方式: fastboot flash vendor_boot vendor_boot.img
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
