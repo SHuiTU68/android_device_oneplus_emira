@@ -149,8 +149,8 @@ TARGET_RECOVERY_PIXEL_FORMAT := RGBX_8888
 TARGET_USERIMAGES_USE_EXT4 := true
 TARGET_USERIMAGES_USE_F2FS := true
 
-# Verified Boot
-BOARD_AVB_ENABLE := true
+# Verified Boot — 已禁用，解锁 BL 后不需要 AVB 签名
+BOARD_AVB_ENABLE := false
 
 # Fastbootd
 TW_INCLUDE_FASTBOOTD := true
