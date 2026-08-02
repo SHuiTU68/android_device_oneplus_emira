@@ -83,7 +83,7 @@ BOARD_KERNEL_SEPARATED_DTBO := true
 TARGET_NO_KERNEL := true
 
 # Partitions — 物理分区大小（来自 /proc/partitions，单位：字节）
-BOARD_VENDOR_BOOTIMAGE_PARTITION_SIZE := 134217728   # sdc43 = 128 MB（实际设备可能为 96MB，如刷入失败请告知实际分区大小）
+BOARD_VENDOR_BOOTIMAGE_PARTITION_SIZE := 100663296   # sdc43 = 96 MB
 
 # Super / 动态分区
 BOARD_SUPER_PARTITION_SIZE   := 14680064000          # sdc94 = 14336000 KB
