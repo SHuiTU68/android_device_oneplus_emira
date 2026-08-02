@@ -1,4 +1,6 @@
-# Android 14+ lunch choices are declared in AndroidProducts.mk via COMMON_LUNCH_CHOICES.
+# 注册 lunch combo（OrangeFox 12.1 基于 AOSP 12，需要 add_lunch_combo）
+add_lunch_combo twrp_OP60EDL1-eng
+
 export FOX_MOVE_MAGISK_INSTALLER_TO_RAMDISK=0
 export FOX_ENABLE_KERNELSU_SUPPORT=0
 export FOX_ENABLE_KERNELSU_NEXT_SUPPORT=0
