@@ -1,0 +1,11 @@
+# Binary images
+*.img
+*.cpio
+*.cpio.gz
+
+# Python helper scripts
+*.py
+
+# Intermediate files
+*.tmp
+*.bak
