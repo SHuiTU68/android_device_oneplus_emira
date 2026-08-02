@@ -152,18 +152,6 @@ service vendor.gatekeeper-default /vendor/bin/hw/android.hardware.gatekeeper-ser
     setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
     seclabel u:r:recovery:s0
 
-# ── NXP Weaver（OMAPI 加解密密钥存储）────────────────────────────────
-# 二进制文件需从设备 /odm/bin/hw/android.hardware.weaver-service.nxp 提取
-# 放入 recovery/root/vendor/odm/bin/hw/ 目录
-service vendor.weaver_nxp /odm/bin/hw/android.hardware.weaver-service.nxp
-    class hal
-    interface aidl android.hardware.weaver.IWeaver/default
-    user system
-    group system
-    disabled
-    setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
-    seclabel u:r:recovery:s0
-
 # ── 启动序列 ─────────────────────────────────────────────────────────
 # 步骤 1：crypto.ready=1 → 启动 mobicore 和 keymint
 # 步骤 2：mobicore 就绪后设置 ro.vendor.trustonic.ready=true
@@ -177,13 +165,11 @@ on property:crypto.ready=1
 # gatekeeper 在 mobicore 就绪后才能启动（原厂设计如此）
 on property:ro.vendor.trustonic.ready=true
     start vendor.gatekeeper-default
-    # NXP Weaver refuses requests until sys.boot_completed is true.
-    # Recovery has no framework boot-complete phase, so set it before using Weaver.
+    # 设置 sys.boot_completed=true 以满足部分 HAL 服务的依赖检查
     setprop sys.boot_completed 1
     start oplus_esepower_hal_service
     start secure_element_hal_service.aidl
 #     start mtk_secure_element_hal_service
-    start vendor.weaver_nxp
 
 on property:hwservicemanager.ready=true
     # KeyMint depends on post-fs mounts; crypto.ready starts it after those exist.
