@@ -29,8 +29,6 @@ PRODUCT_PROPERTY_OVERRIDES += ro.twrp.vendor_boot=true
 PRODUCT_COPY_FILES += \
     $(DEVICE_PATH)/vendor_ramdisk/first_stage_ramdisk/fstab.mt6991:vendor_ramdisk/first_stage_ramdisk/fstab.mt6991 \
     $(DEVICE_PATH)/twrp.fstab:recovery/root/system/etc/twrp.fstab \
-    $(DEVICE_PATH)/vendor_ramdisk/vendor/firmware/aw8697_haptic_170.bin:vendor_ramdisk/vendor/firmware/aw8697_haptic_170.bin \
-    $(DEVICE_PATH)/vendor_ramdisk/vendor/firmware/aw8697_haptic_170_soft.bin:vendor_ramdisk/vendor/firmware/aw8697_haptic_170_soft.bin \
     $(call find-copy-subdir-files,*,$(DEVICE_PATH)/vendor_ramdisk/lib/modules,vendor_ramdisk/lib/modules) \
     $(DEVICE_PATH)/recovery/root/system/etc/vintf/manifest.xml:recovery/root/system/etc/vintf/manifest.xml \
     $(DEVICE_PATH)/recovery/root/vendor/manifest.xml:recovery/root/vendor/manifest.xml \
