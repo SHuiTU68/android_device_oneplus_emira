@@ -135,7 +135,7 @@ log "产出: /sdcard/recovery_root_files.tar.gz"
 log ""
 log "后续操作："
 log "  adb pull /sdcard/recovery_root_files.tar.gz"
-log "  cd device/oplus/emira/recovery/root/"
+log "  cd device/oplus/OP60EDL1/recovery/root/"
 log "  tar xzf recovery_root_files.tar.gz"
 log "============================================"
 

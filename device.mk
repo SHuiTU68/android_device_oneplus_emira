@@ -5,7 +5,7 @@
 # ...
 #
 
-DEVICE_PATH := device/oplus/emira
+DEVICE_PATH := device/oplus/OP60EDL1
 
 $(call inherit-product, $(SRC_TARGET_DIR)/product/base.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)

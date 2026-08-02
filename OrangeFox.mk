@@ -1,9 +1,9 @@
 #
-# OrangeFox Recovery 配置 — OnePlus Ace5 Ultra (emira)
+# OrangeFox Recovery 配置 — OnePlus Ace5 Ultra (OP60EDL1)
 #
 
 FOX_VARIANT := c15
-OF_MAINTAINER := YourName
+OF_MAINTAINER := SHuiTU68
 FOX_BUILD_TYPE := Unofficial
 
 FOX_VENDOR_BOOT_RECOVERY := 1
@@ -31,8 +31,8 @@ FOX_USE_DATE_BINARY := 1
 FOX_USE_DMSETUP := 1
 OF_USE_AIDL_BOOT_CONTROL := 1
 
-FOX_TARGET_DEVICES := emira
-TARGET_DEVICE_ALT := emira
+FOX_TARGET_DEVICES := OP60EDL1
+TARGET_DEVICE_ALT := OP60EDL1
 
 # 屏幕打孔摄像头位置（Ace5 Ultra 居中打孔，需实测后调整）
 # 参考：屏幕宽 1216px，状态栏高度约 118px

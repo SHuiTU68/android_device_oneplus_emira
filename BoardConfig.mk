@@ -14,7 +14,7 @@
 # limitations under the License.
 #
 
-DEVICE_PATH := device/oplus/emira
+DEVICE_PATH := device/oplus/OP60EDL1
 
 # Architecture
 # 天玑 9400 实际是 ARMv9 Cortex-X925，但 AOSP 构建系统不认识这些值
@@ -205,7 +205,7 @@ TW_DEFAULT_LANGUAGE     := en
 # 亮度值来自 /sys/class/leds/lcd-backlight/max_brightness = 4094
 TW_DEFAULT_BRIGHTNESS   := 1000
 TW_MAX_BRIGHTNESS       := 4094
-TW_DEVICE_VERSION       := emira
+TW_DEVICE_VERSION       := OP60EDL1
 TW_EXCLUDE_APEX         := true
 TW_NO_LEGACY_PROPS      := true
 TW_NO_BIND_SYSTEM       := true

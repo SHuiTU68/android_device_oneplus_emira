@@ -1,4 +1,4 @@
-# init.recovery.usb.rc — emira (MT6991) USB configfs support
+# init.recovery.usb.rc — OP60EDL1 (MT6991) USB configfs support
 #
 # MTK mtu3 控制器的特殊行为：
 #   - 写 "none" 到 UDC 不能解绑（报 No such device）

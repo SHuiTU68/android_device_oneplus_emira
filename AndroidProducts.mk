@@ -1,5 +1,5 @@
 PRODUCT_MAKEFILES := \
-    $(LOCAL_DIR)/twrp_emira.mk
+    $(LOCAL_DIR)/twrp_OP60EDL1.mk
 
 COMMON_LUNCH_CHOICES := \
-    twrp_emira-eng
+    twrp_OP60EDL1-eng
