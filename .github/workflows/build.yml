@@ -42,13 +42,13 @@ jobs:
         run: |
           git clone https://gitlab.com/OrangeFox/sync.git
           cd sync
-          ./orangefox_sync.sh --branch 12.1 --path ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1
+          ./orangefox_sync.sh --branch 14.1 --path ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1
 
       - name: 检出设备树
         run: |
           git clone ${{ github.server_url }}/${{ github.repository }} \
             -b ${{ github.ref_name }} \
-            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/device/oplus/OP60EDL1
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1
 
       - name: 设置 Swap
         uses: pierotofy/set-swap-space@master
@@ -57,7 +57,7 @@ jobs:
 
       - name: 编译 OrangeFox Recovery
         run: |
-          cd ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1
+          cd ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1
           source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
           lunch twrp_OP60EDL1-eng
@@ -67,15 +67,15 @@ jobs:
 
       - name: 检查编译产物
         run: |
-          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/ || true
+          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/ || true
 
       - name: 上传编译产物（Artifact）
         uses: actions/upload-artifact@v4
         with:
           name: OrangeFox-OP60EDL1
           path: |
-            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/vendor_boot.img
-            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/*.zip
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/*.zip
           if-no-files-found: warn
 
       - name: 上传到 Release
@@ -83,7 +83,7 @@ jobs:
         if: success()
         with:
           files: |
-            ${{ steps.pwd.outputs.workspace-folder }}/fox_12.1/out/target/product/OP60EDL1/vendor_boot.img
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
           name: OrangeFox-OP60EDL1-${{ github.run_id }}
           tag_name: ${{ github.run_id }}
           body: |
@@ -91,7 +91,7 @@ jobs:
             - 编译分支: ${{ github.ref_name }}
             - 提交: ${{ github.sha }}
             - FOX_VARIANT: c16
-            - 基于 Android 12.1 (OrangeFox 12.1)
+            - 基于 Android 14.1 (OrangeFox R12.0)
             - 刷入方式: fastboot flash vendor_boot vendor_boot.img
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
