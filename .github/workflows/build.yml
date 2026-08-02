@@ -1,0 +1,33 @@
+name: Build OrangeFox Recovery
+
+on:
+  workflow_dispatch:    # 手动触发
+  push:
+    branches: [device_OP60EDL1]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/azwhikaru/twrp-builder:latest
+
+    steps:
+      - name: 检出设备树
+        uses: actions/checkout@v4
+        with:
+          path: device/oplus/OP60EDL1
+
+      - name: 编译 Recovery
+        run: |
+          . build/envsetup.sh
+          lunch twrp_OP60EDL1-eng
+          mka recoveryimage adbd
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrangeFox-OP60EDL1
+          path: |
+            out/target/product/OP60EDL1/*.img
+            out/target/product/OP60EDL1/obj/PACKAGING/target_files_intermediates/*.zip
+          if-no-files-found: warn
