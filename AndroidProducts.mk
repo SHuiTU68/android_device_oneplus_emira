@@ -1,5 +1,5 @@
 PRODUCT_MAKEFILES := \
-    device/oplus/OP60EDL1/twrp_OP60EDL1.mk
+    $(LOCAL_DIR)/twrp_OP60EDL1.mk
 
 COMMON_LUNCH_CHOICES := \
     twrp_OP60EDL1-eng
