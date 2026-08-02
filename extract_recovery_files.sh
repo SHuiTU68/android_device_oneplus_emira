@@ -117,7 +117,39 @@ for f in $ODM_DRBINS; do
 done
 log "  ✓ 共 $ODM_COUNT 个 odm drbin 文件"
 
-# ── 6. persist 目录结构（空目录，供 mobicore 运行时使用） ──
+# ── 6. odm/bin/hw/ — ODM 二进制（Weaver、eSE Power、Secure Element） ──
+log "提取 ODM 服务二进制"
+mkdir -p "$WORK/odm/bin/hw"
+
+ODM_BINS="
+/odm/bin/hw/android.hardware.weaver-service.nxp
+/odm/bin/hw/vendor.oplus.hardware.esepower-service
+/odm/bin/hw/android.hardware.secure_element-service-tms
+"
+
+for f in $ODM_BINS; do
+    if [ -f "$f" ]; then
+        dest="$WORK/odm/${f#/odm/}"
+        mkdir -p "$(dirname "$dest")"
+        cp "$f" "$dest"
+        log "  ✓ $(basename $f)"
+    else
+        warn "  ✗ $f 不存在"
+    fi
+done
+
+# ── 7. odm 的 VINTF manifest 片段 ──
+log "提取 ODM VINTF manifest"
+for f in /odm/etc/vintf/manifest/*.xml; do
+    if [ -f "$f" ]; then
+        dest="$WORK/odm/etc/vintf/manifest/"
+        mkdir -p "$dest"
+        cp "$f" "$dest"
+        log "  ✓ $(basename $f)"
+    fi
+done
+
+# ── 8. persist 目录结构（空目录，供 mobicore 运行时使用） ──
 log "创建 persist 挂载点目录"
 mkdir -p "$WORK/mnt/vendor/persist/mcRegistry"
 

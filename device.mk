@@ -26,10 +26,12 @@ PRODUCT_TARGET_VNDK_VERSION := 34
 PRODUCT_PROPERTY_OVERRIDES += ro.twrp.vendor_boot=true
 
 # Stock vendor ramdisk essentials for the platform fragment in vendor_boot v4.
+# 注意：内核模块由 BOARD_VENDOR_RAMDISK_DIR 自动包含进 platform ramdisk，
+# 不要用 PRODUCT_COPY_FILES 复制模块，否则它们会错误地进入 recovery ramdisk
+# 导致 system ramdisk 缺少模块，系统无法启动。
 PRODUCT_COPY_FILES += \
     $(DEVICE_PATH)/vendor_ramdisk/first_stage_ramdisk/fstab.mt6991:vendor_ramdisk/first_stage_ramdisk/fstab.mt6991 \
     $(DEVICE_PATH)/twrp.fstab:recovery/root/system/etc/twrp.fstab \
-    $(call find-copy-subdir-files,*,$(DEVICE_PATH)/vendor_ramdisk/lib/modules,vendor_ramdisk/lib/modules) \
     $(DEVICE_PATH)/recovery/root/system/etc/vintf/manifest.xml:recovery/root/system/etc/vintf/manifest.xml \
     $(DEVICE_PATH)/recovery/root/vendor/manifest.xml:recovery/root/vendor/manifest.xml \
     $(DEVICE_PATH)/recovery/root/vendor/etc/vintf/manifest.xml:recovery/root/vendor/etc/vintf/manifest.xml \

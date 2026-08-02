@@ -167,7 +167,6 @@ regulator-vibrator.ko
 mtk-i3c-i2c-wrap.ko
 i2c-mt65xx.ko
 mtk-i3c-master-mt69xx.ko
-mtk_dramc.ko
 spi-mt65xx.ko
 oplus_camera_wl28681c_regulator.ko
 oplus_camera_dio8018wl20_regulator.ko

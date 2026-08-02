@@ -5,7 +5,7 @@ import /tee.rc
 import /trustonic.rc
 # import /vendor/etc/init/android.hardware.secure_element@1.2-service-mediatek.rc
 import /vendor/odm/etc/init/vendor.oplus.hardware.esepower-service.rc
-import /vendor/odm/etc/init/vendor.oplus.hardware.secure_element-service.rc
+import /vendor/odm/etc/init/secure_element-service-tms.rc
 
 on init
     setprop sys.usb.configfs 1
@@ -40,6 +40,11 @@ on post-fs
     # 同时挂载到 /persist，解决 OrangeFox Mount_By_Path("/persist") EBUSY 问题
     mkdir /persist 0755 root root
     mount ext4 /dev/block/by-name/persist /persist rw
+
+    # ODM 二进制文件在 recovery ramdisk 中位于 /vendor/odm/bin/hw/，
+    # 但部分 stock rc 文件（如 esepower-service.rc）引用 /odm/bin/hw/ 路径，
+    # 创建软链接解决路径不匹配问题。
+    symlink /vendor/odm/bin/hw /odm/bin/hw
 
     # 挂载 odm 分区（mobicore 需要 /odm/vendor/app/mcRegistry/ 下的 .drbin 文件）
     # mount erofs /dev/block/mapper/odm_a /odm ro
@@ -147,6 +152,18 @@ service vendor.gatekeeper-default /vendor/bin/hw/android.hardware.gatekeeper-ser
     setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
     seclabel u:r:recovery:s0
 
+# ── NXP Weaver（OMAPI 加解密密钥存储）────────────────────────────────
+# 二进制文件需从设备 /odm/bin/hw/android.hardware.weaver-service.nxp 提取
+# 放入 recovery/root/vendor/odm/bin/hw/ 目录
+service vendor.weaver_nxp /odm/bin/hw/android.hardware.weaver-service.nxp
+    class hal
+    interface aidl android.hardware.weaver.IWeaver/default
+    user system
+    group system
+    disabled
+    setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
+    seclabel u:r:recovery:s0
+
 # ── 启动序列 ─────────────────────────────────────────────────────────
 # 步骤 1：crypto.ready=1 → 启动 mobicore 和 keymint
 # 步骤 2：mobicore 就绪后设置 ro.vendor.trustonic.ready=true
@@ -164,7 +181,7 @@ on property:ro.vendor.trustonic.ready=true
     # Recovery has no framework boot-complete phase, so set it before using Weaver.
     setprop sys.boot_completed 1
     start oplus_esepower_hal_service
-    start secure_element-1-0
+    start secure_element_hal_service.aidl
 #     start mtk_secure_element_hal_service
     start vendor.weaver_nxp
 
