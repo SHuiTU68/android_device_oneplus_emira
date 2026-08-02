@@ -26,10 +26,6 @@
         <fqname>IBootControl/default</fqname>
     </hal>
     <hal format="aidl">
-        <name>android.hardware.weaver</name>
-        <fqname>IWeaver/default</fqname>
-    </hal>
-    <hal format="aidl">
         <name>android.hardware.radio.config</name>
         <version>3</version>
         <fqname>IRadioConfig/default</fqname>
