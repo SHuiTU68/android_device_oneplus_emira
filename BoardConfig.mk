@@ -247,3 +247,9 @@ TW_INCLUDE_OMAPI := true
 TW_EXCLUDE_NANO := true
 TW_EXCLUDE_BASH := true
 TW_EXCLUDE_LPDUMP := true
+
+# 振动马达支持（从 Redmi K50 TWRP 参考）
+# aw8697.ko 为 AWINIC 触觉驱动，haptic.ko/haptic_feedback.ko 为 MTK 通用振动驱动
+# 内核模块在 modules.load.recovery 中已列出，TWRP 会自动加载
+TW_LOAD_VENDOR_MODULES := "aw8697.ko haptic.ko haptic_feedback.ko"
+TW_SUPPORT_INPUT_AIDL_HAPTICS := true
