@@ -77,6 +77,7 @@ jobs:
             exit 0
           fi
           echo "=== 交换 ramdisk table 指针 ==="
+          pip3 install lz4
           python3 ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1/repack_vendor_boot.py \
             "$VENDOR_BOOT" "${VENDOR_BOOT}.repacked"
           echo "=== 替换 vendor_boot.img ==="
