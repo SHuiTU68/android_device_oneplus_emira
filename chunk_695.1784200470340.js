@@ -1,0 +1,32 @@
+<!doctype html><html lang=""><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=0"><meta name="keywords" content="èå¥äºä¼äº«çãèå¥äºä¼äº«çåäº«æä»¶ãèå¥äºä¼äº«çå®åãèå¥äºä¼äº«çApp"><meta name="description" content="èå¥äºä¼äº«çãæéåäº«ãä¸è½½åç»å½ãå¨çº¿é¢è§ãæ æå­å¨ãä¸éé"><meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"><meta http-equiv="Pragma" content="no-cache"><link rel="icon" href="/s/favicon.ico"><title>èå¥äºä¼äº«ç</title><script defer="defer" type="module" src="/s/js/app.1784200470340.b3062818.js"></script><script defer="defer" type="module" src="/s/js/app.1784200470340.e9bb0ccb.js"></script><link href="/s/css/app.1784200470340.cca9bd96.css" rel="stylesheet"><link href="/s/css/app.1784200470340.c2cda8cd.css" rel="stylesheet"><script defer="defer" src="/s/js/app.1784200423589.b055f44c.js" nomodule></script><script defer="defer" src="/s/js/app.1784200423589.c31fefb3.js" nomodule></script></head><body ondragstart="return false" oncontextmenu="return false;"><noscript><strong>We're sorry but disk-vue doesn't work properly without JavaScript enabled. Please enable it to continue.</strong></noscript><div id="app"></div></body><script charset="UTF-8" id="LA_COLLECT" src="//sdk.51.la/js-sdk-pro.min.js"></script><script>LA.init({id:"3IMgZpuCpV9ztZb6",ck:"3IMgZpuCpV9ztZb6"})</script><script>try {
+          (function () {
+              if (typeof WeixinJSBridge === 'object' && typeof WeixinJSBridge.invoke === 'function') {
+                  handleFontSize()
+              } else {
+                  if (document.addEventListener) {
+                      document.addEventListener('WeixinJSBridgeReady', handleFontSize, false)
+                  } else if (document.attachEvent) {
+                      document.attachEvent('WeixinJSBridgeReady', handleFontSize)
+                      document.attachEvent('onWeixinJSBridgeReady', handleFontSize)
+                  }
+              }
+              function handleFontSize () {
+                  WeixinJSBridge.invoke('setFontSizeCallback', { fontSize: 0 })
+                  WeixinJSBridge.on('menu:setfont', function () {
+                      WeixinJSBridge.invoke('setFontSizeCallback', { fontSize: 0 })
+                  })
+              }
+          })()
+      }catch (e){
+      }
+
+      if (window.location.href.indexOf('https://') == 0){
+      setInterval(()=>{
+              let st;
+              st = new Date().getTime();
+              new Function('debugger')()
+              if ((new Date().getTime() - st > 300)){
+                  window.location.replace("about:blank");
+              }
+        },300)
+      }</script></html>
