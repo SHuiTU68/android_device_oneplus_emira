@@ -230,15 +230,21 @@ TARGET_USE_CUSTOM_LUN_FILE_PATH := /config/usb_gadget/g1/functions/mass_storage.
 BOARD_BOOT_CONTROL_HAL := android.hardware.boot-service.mtk
 
 # Vendor Boot（Recovery 打包进 vendor_boot）
+# 参考 rubens TWRP: 使用 GKI 模式，让构建系统自动创建 vendor ramdisk (platform)，
+# 确保 lib/modules 进入 ramdisk.cpio (platform) 而非 recovery.cpio (recovery)
 BOARD_USES_VENDOR_BOOT              := true
 BOARD_BUILD_VENDOR_BOOT             := true
+BOARD_USES_GENERIC_KERNEL_IMAGE     := true
 BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT := true
 BOARD_INCLUDE_RECOVERY_RAMDISK_IN_VENDOR_BOOT := true
 BOARD_VENDOR_RAMDISK_DIR            := $(DEVICE_PATH)/vendor_ramdisk
 BOARD_VENDOR_RAMDISK_COMPRESSION    := lz4
 BOARD_VENDOR_RAMDISK_USE_LZ4        := true
 BOARD_VENDOR_RAMDISK_FSTAB          := $(DEVICE_PATH)/vendor_ramdisk/first_stage_ramdisk/fstab.mt6991
-# BOARD_USES_GENERIC_VENDOR_RAMDISK := true  # 注释掉：使用自定义 vendor_ramdisk 而非 GKI 通用版本
+BOARD_USES_GENERIC_VENDOR_RAMDISK   := false  # 使用自定义 vendor_ramdisk 而非 GKI 通用版本
+
+# 显式声明 vendor ramdisk 中的内核模块，确保构建系统将它们放入 platform ramdisk
+BOARD_VENDOR_RAMDISK_KERNEL_MODULES := $(wildcard $(DEVICE_PATH)/vendor_ramdisk/lib/modules/*.ko)
 
 # se_omapi
 TW_INCLUDE_OMAPI := true

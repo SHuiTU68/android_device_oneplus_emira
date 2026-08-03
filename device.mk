@@ -26,14 +26,10 @@ PRODUCT_TARGET_VNDK_VERSION := 34
 PRODUCT_PROPERTY_OVERRIDES += ro.twrp.vendor_boot=true
 
 # Stock vendor ramdisk essentials for the platform fragment in vendor_boot v4.
-# BOARD_VENDOR_RAMDISK_DIR 在 AOSP 14 中不再自动复制文件到 vendor ramdisk，
-# 需要显式用 PRODUCT_COPY_FILES 复制必需的文件。
-# 只复制 lib/modules（内核模块，49MB）和 vendor（manifest，172KB）到 platform ramdisk，
-# 与参考 TWRP 的 ramdisk.cpio 结构一致（first_stage_ramdisk + vendor + lib）。
-# system/（48MB）和 sbin/ 不复制，避免 vendor_boot.img 超出 96MB。
+# BOARD_VENDOR_RAMDISK_DIR 会自动将 vendor_ramdisk/ 目录下的所有文件
+#（lib/modules、first_stage_ramdisk、vendor 等）复制到 platform ramdisk (ramdisk.cpio)。
+# 无需用 PRODUCT_COPY_FILES 显式复制，否则可能干扰构建系统导致文件进入错误的 ramdisk。
 PRODUCT_COPY_FILES += \
-    $(DEVICE_PATH)/vendor_ramdisk/first_stage_ramdisk/fstab.mt6991:vendor_ramdisk/first_stage_ramdisk/fstab.mt6991 \
-    $(foreach f,$(shell cd $(DEVICE_PATH)/vendor_ramdisk && find lib/modules vendor -type f),$(DEVICE_PATH)/vendor_ramdisk/$(f):vendor_ramdisk/$(f)) \
     $(DEVICE_PATH)/twrp.fstab:recovery/root/system/etc/twrp.fstab \
     $(DEVICE_PATH)/recovery/root/system/etc/vintf/manifest.xml:recovery/root/system/etc/vintf/manifest.xml \
     $(DEVICE_PATH)/recovery/root/vendor/manifest.xml:recovery/root/vendor/manifest.xml \
