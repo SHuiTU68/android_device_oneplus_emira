@@ -69,6 +69,25 @@ jobs:
         run: |
           ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/ || true
 
+      - name: 后处理：交换 ramdisk（recovery→platform, 空→recovery）
+        run: |
+          pip3 install lz4
+          VENDOR_BOOT=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
+          if [ ! -f "$VENDOR_BOOT" ]; then
+            echo "vendor_boot.img 不存在，跳过后处理"
+            exit 0
+          fi
+          echo "=== 原始 vendor_boot 结构 ==="
+          python3 ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1/repack_vendor_boot.py \
+            "$VENDOR_BOOT" "${VENDOR_BOOT}.repacked" 100663296
+          echo "=== 替换 vendor_boot.img ==="
+          cp "${VENDOR_BOOT}.repacked" "$VENDOR_BOOT"
+          echo "=== 同步到 OrangeFox 镜像 ==="
+          FOX_IMG=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/OrangeFox-R12.0-Unofficial-OP60EDL1.img
+          if [ -f "$FOX_IMG" ]; then
+            cp "$VENDOR_BOOT" "$FOX_IMG"
+          fi
+
       - name: 上传编译产物（Artifact）
         uses: actions/upload-artifact@v4
         with:
