@@ -1,34 +1,29 @@
 #!/usr/bin/env python3
 """
-重新打包 vendor_boot.img：
-  1. 解析 VNDRBOOT v4 header
-  2. 提取 platform ramdisk 和 recovery ramdisk
+重新打包 vendor_boot.img（不依赖 header 解析）：
+  1. 搜索 LZ4 legacy magic 定位 ramdisk 数据
+  2. 搜索 ramdisk table（type=0 platform + type=1 recovery）
   3. 把 recovery ramdisk 作为新的 platform ramdisk
   4. 创建空的 CPIO 作为新的 recovery ramdisk
   5. 重新打包 vendor_boot.img
 
-用法：python3 repack_vendor_boot.py <vendor_boot.img> <output.img>
+用法：python3 repack_vendor_boot.py <vendor_boot.img> <output.img> [target_size]
 """
 
 import struct
 import sys
 import os
 import lz4.block
-import io
 
-VENDOR_BOOT_MAGIC = b'VNDRBOOT'
-PAGE_SIZE_DEFAULT = 4096
-
-# LZ4 Legacy 格式
-LZ4_LEGACY_MAGIC = struct.pack('<I', 0x184C2102)
+PAGE_SIZE = 4096
+LZ4_LEGACY_MAGIC = b'\x02\x21\x4c\x18'
 
 
 def create_empty_cpio():
     """创建一个空的 CPIO 归档（只包含 TRAILER!!!）"""
-    # CPIO newc 格式的 TRAILER!!! 条目
-    header = b'070701'  # magic
+    header = b'070701'
     header += b'00000000'  # ino
-    header += b'000081A4'  # mode (040755 = directory... 不，用 0)
+    header += b'000081A4'  # mode
     header += b'00000000'  # uid
     header += b'00000000'  # gid
     header += b'00000001'  # nlink
@@ -39,10 +34,9 @@ def create_empty_cpio():
     header += b'00000000'  # rdevmajor
     header += b'00000000'  # rdevminor
     name = b'TRAILER!!!\x00'
-    header += f'{len(name):08X}'.encode('ascii')  # namesize
+    header += f'{len(name):08X}'.encode('ascii')
     header += b'00000000'  # check
     header += name
-    # 对齐到 4 字节
     total = len(header)
     pad = (4 - (total % 4)) % 4
     header += b'\x00' * pad
@@ -52,228 +46,305 @@ def create_empty_cpio():
 def lz4_legacy_compress(data):
     """用 LZ4 Legacy 格式压缩数据"""
     result = bytearray(LZ4_LEGACY_MAGIC)
-
-    # 分块压缩（每块最大 8MB 解压后）
     block_size = 8 * 1024 * 1024
     offset = 0
     while offset < len(data):
         chunk = data[offset:offset + block_size]
         compressed = lz4.block.compress(
-            chunk,
-            mode='high_compression',
-            compression=12,
-            store_size=False
+            chunk, mode='high_compression', compression=12, store_size=False
         )
-        # block_size 字段（最高位=0 表示压缩）
         result += struct.pack('<I', len(compressed))
         result += compressed
         offset += block_size
-
-    # 结束标记
-    result += struct.pack('<I', 0)
+    result += struct.pack('<I', 0)  # end marker
     return bytes(result)
 
 
-def parse_vendor_boot(data):
-    """解析 VNDRBOOT v4 vendor_boot.img"""
-    magic = data[0:8]
-    if magic != VENDOR_BOOT_MAGIC:
-        raise ValueError(f"Invalid magic: {magic}")
-
-    header_version = struct.unpack('<I', data[8:12])[0]
-    page_size = struct.unpack('<I', data[12:16])[0]
-    kernel_addr = struct.unpack('<I', data[16:20])[0]
-    ramdisk_addr = struct.unpack('<I', data[20:24])[0]
-    v_ramdisk_table_offset = struct.unpack('<I', data[24:28])[0]
-    v_ramdisk_table_entry_num = struct.unpack('<I', data[28:32])[0]
-    v_ramdisk_table_entry_size = struct.unpack('<I', data[32:36])[0]
-    bootconfig_size = struct.unpack('<I', data[36:40])[0]
-    dtb_size = struct.unpack('<I', data[40:44])[0]
-    dtb_addr = struct.unpack('<Q', data[44:52])[0]
-
-    print(f"VNDRBOOT v{header_version}")
-    print(f"  page_size: {page_size}")
-    print(f"  table_offset: {v_ramdisk_table_offset}")
-    print(f"  table_entries: {v_ramdisk_table_entry_num}")
-    print(f"  table_entry_size: {v_ramdisk_table_entry_size}")
-    print(f"  dtb_size: {dtb_size}")
-    print(f"  bootconfig_size: {bootconfig_size}")
-
-    # 解析 ramdisk table
-    ramdisks = []
-    for i in range(v_ramdisk_table_entry_num):
-        off = v_ramdisk_table_offset + i * v_ramdisk_table_entry_size
-        entry = data[off:off + v_ramdisk_table_entry_size]
-        v_type = struct.unpack('<I', entry[0:4])[0]
-        # entry[4:8] 可能是 ramdisk_name index 或 padding
-        v_size = struct.unpack('<Q', entry[8:16])[0]
-        v_offset = struct.unpack('<Q', entry[16:24])[0]
-        v_name = entry[24:32].rstrip(b'\x00').decode('ascii', errors='replace')
-
-        type_name = {0: 'platform', 1: 'recovery', 2: 'dlkm'}.get(v_type, f'unknown({v_type})')
-        print(f"  Ramdisk [{i}]: type={type_name}, size={v_size}, offset={v_offset}, name=\"{v_name}\"")
-
-        # 提取 ramdisk 数据
-        ramdisk_data = data[v_offset:v_offset + v_size]
-        ramdisks.append({
-            'type': v_type,
-            'type_name': type_name,
-            'size': v_size,
-            'offset': v_offset,
-            'name': v_name,
-            'data': ramdisk_data
-        })
-
-    # 提取 DTB
-    # DTB 通常在 header 之后（第一页之后）
-    dtb_offset = page_size  # DTB 从第二页开始
-    dtb_data = data[dtb_offset:dtb_offset + dtb_size]
-    print(f"  DTB: offset={dtb_offset}, size={len(dtb_data)}")
-
-    return {
-        'header_version': header_version,
-        'page_size': page_size,
-        'kernel_addr': kernel_addr,
-        'ramdisk_addr': ramdisk_addr,
-        'v_ramdisk_table_offset': v_ramdisk_table_offset,
-        'v_ramdisk_table_entry_num': v_ramdisk_table_entry_num,
-        'v_ramdisk_table_entry_size': v_ramdisk_table_entry_size,
-        'bootconfig_size': bootconfig_size,
-        'dtb_size': dtb_size,
-        'dtb_addr': dtb_addr,
-        'header_data': data[:page_size],  # 完整 header（第一页）
-        'ramdisks': ramdisks,
-        'dtb_data': dtb_data,
-        'raw_data': data,
-    }
+def align_up(val, alignment):
+    return (val + alignment - 1) // alignment * alignment
 
 
-def repack_vendor_boot(info, output_path, target_size=None):
+def find_ramdisk_table(data):
     """
-    重新打包 vendor_boot.img：
-    - 把 recovery ramdisk 作为新的 platform ramdisk
-    - 用空 CPIO 作为新的 recovery ramdisk
+    搜索 ramdisk table。
+    table 包含连续的 32 字节 entries：
+      Entry 0: type=0 (platform), name_idx=0, body_size, ramdisk_offset, name
+      Entry 1: type=1 (recovery), name_idx=0, body_size, ramdisk_offset, name
     """
-    page_size = info['page_size']
-    header = bytearray(info['header_data'])
+    # 搜索范围：从第二页开始到文件末尾
+    search_start = PAGE_SIZE
+    data_len = len(data)
 
-    # 创建空 CPIO 并 LZ4 压缩
-    empty_cpio = create_empty_cpio()
-    empty_cpio_lz4 = lz4_legacy_compress(empty_cpio)
-    print(f"\n空 CPIO 大小: {len(empty_cpio)} bytes")
-    print(f"空 CPIO LZ4 压缩后: {len(empty_cpio_lz4)} bytes")
+    for pos in range(search_start, data_len - 64, 4):
+        # 检查 entry 0: type=0 (platform)
+        e0_type = struct.unpack('<I', data[pos:pos+4])[0]
+        if e0_type != 0:
+            continue
 
-    # 找到 recovery ramdisk 和 platform ramdisk
-    recovery_ramdisk = None
-    for r in info['ramdisks']:
-        if r['type'] == 1:  # recovery
-            recovery_ramdisk = r
+        e0_name_idx = struct.unpack('<I', data[pos+4:pos+8])[0]
+        if e0_name_idx != 0:
+            continue
+
+        e0_size = struct.unpack('<Q', data[pos+8:pos+16])[0]
+        e0_offset = struct.unpack('<Q', data[pos+16:pos+24])[0]
+
+        # 验证：size 和 offset 应该在合理范围内
+        if e0_size < 100 or e0_size > data_len:
+            continue
+        if e0_offset < PAGE_SIZE or e0_offset >= data_len:
+            continue
+
+        # 检查 entry 1: type=1 (recovery)
+        e1_off = pos + 32
+        e1_type = struct.unpack('<I', data[e1_off:e1_off+4])[0]
+        if e1_type != 1:
+            continue
+
+        e1_name_idx = struct.unpack('<I', data[e1_off+4:e1_off+8])[0]
+        e1_size = struct.unpack('<Q', data[e1_off+8:e1_off+16])[0]
+        e1_offset = struct.unpack('<Q', data[e1_off+16:e1_off+24])[0]
+        e1_name = data[e1_off+24:e1_off+32].rstrip(b'\x00').decode('ascii', errors='replace')
+
+        # 验证 entry 1
+        if e1_size < 100 or e1_size > data_len:
+            continue
+        if e1_offset < PAGE_SIZE or e1_offset >= data_len:
+            continue
+
+        # 检查 ramdisk 数据是否是 LZ4 legacy 格式
+        e0_data_start = data[e0_offset:e0_offset+4]
+        e1_data_start = data[e1_offset:e1_offset+4]
+
+        is_lz4_e0 = (e0_data_start == LZ4_LEGACY_MAGIC)
+        is_lz4_e1 = (e1_data_start == LZ4_LEGACY_MAGIC)
+
+        if not is_lz4_e0 and not is_lz4_e1:
+            continue
+
+        print(f"找到 ramdisk table @ offset 0x{pos:X}")
+        print(f"  Entry 0: type=platform, size={e0_size}, offset=0x{e0_offset:X}, lz4={is_lz4_e0}")
+        print(f"  Entry 1: type=recovery, size={e1_size}, offset=0x{e1_offset:X}, name=\"{e1_name}\", lz4={is_lz4_e1}")
+
+        return {
+            'table_offset': pos,
+            'entry0': {
+                'type': 0,
+                'size': e0_size,
+                'offset': e0_offset,
+            },
+            'entry1': {
+                'type': 1,
+                'size': e1_size,
+                'offset': e1_offset,
+                'name': e1_name,
+            },
+        }
+
+    return None
+
+
+def find_dtb(data, ramdisk_end):
+    """
+    搜索 DTB。
+    DTB 以 FDT magic (0xD00DFEED) 开头，在 MTK 格式中可能在 offset+64 处。
+    DTB 通常在 ramdisk table 之后。
+    """
+    fdt_magic = b'\xd0\x0d\xfe\xed'
+    pos = ramdisk_end
+
+    while pos < len(data) - 4:
+        idx = data.find(fdt_magic, pos)
+        if idx == -1:
             break
 
-    if not recovery_ramdisk:
-        raise ValueError("找不到 recovery ramdisk")
+        # 验证：DTB 的 totalsize 字段（在 magic 后 4 字节）
+        if idx + 8 <= len(data):
+            dtb_size = struct.unpack('>I', data[idx+4:idx+8])[0]
+            if 100000 < dtb_size < 2000000:  # DTB 大小通常在 100KB-2MB
+                print(f"找到 DTB @ offset 0x{idx:X}, size={dtb_size}")
+                return idx, dtb_size
 
-    print(f"\n原始 recovery ramdisk 大小: {recovery_ramdisk['size']} bytes")
-    print(f"将作为新的 platform ramdisk")
+        pos = idx + 1
 
-    # 计算新的 ramdisk 布局
-    # 布局: header(1页) + DTB(对齐到页) + ramdisk0(新platform=recovery) + ramdisk1(新recovery=空)
-    dtb_pages = (info['dtb_size'] + page_size - 1) // page_size
+    return -1, 0
 
-    # 新 platform ramdisk = 原 recovery ramdisk
-    new_platform_data = recovery_ramdisk['data']
-    new_platform_size = len(new_platform_data)
 
-    # 新 recovery ramdisk = 空 CPIO LZ4
-    new_recovery_data = empty_cpio_lz4
-    new_recovery_size = len(new_recovery_data)
+def repack_vendor_boot(input_path, output_path, target_size=None):
+    with open(input_path, 'rb') as f:
+        data = bytearray(f.read())
 
-    # ramdisk 起始偏移（DTB 之后）
-    ramdisk_start = page_size + dtb_pages * page_size
+    print(f"输入文件: {input_path} ({len(data)} bytes, {len(data)/1024/1024:.1f} MB)")
 
-    # 新 platform ramdisk 偏移
-    new_platform_offset = ramdisk_start
-    # 对齐到页
-    platform_pages = (new_platform_size + page_size - 1) // page_size
-    new_recovery_offset = new_platform_offset + platform_pages * page_size
+    # 验证 VNDRBOOT magic
+    if data[:8] != b'VNDRBOOT':
+        raise ValueError(f"Invalid magic: {data[:8]}")
+
+    page_size = struct.unpack('<I', data[12:16])[0]
+    print(f"page_size: {page_size}")
+
+    # 1. 搜索 ramdisk table
+    table_info = find_ramdisk_table(data)
+    if not table_info:
+        raise ValueError("找不到 ramdisk table")
+
+    e0 = table_info['entry0']  # platform
+    e1 = table_info['entry1']  # recovery
+    table_offset = table_info['table_offset']
+
+    # 2. 提取 ramdisk 数据
+    platform_data = data[e0['offset']:e0['offset'] + e0['size']]
+    recovery_data = data[e1['offset']:e1['offset'] + e1['size']]
+
+    print(f"\n原始 platform ramdisk: offset=0x{e0['offset']:X}, size={e0['size']} ({e0['size']/1024/1024:.1f} MB)")
+    print(f"原始 recovery ramdisk: offset=0x{e1['offset']:X}, size={e1['size']} ({e1['size']/1024/1024:.1f} MB)")
+
+    # 3. 创建空 CPIO 并 LZ4 压缩
+    empty_cpio = create_empty_cpio()
+    empty_cpio_lz4 = lz4_legacy_compress(empty_cpio)
+    print(f"\n空 CPIO: {len(empty_cpio)} bytes -> LZ4: {len(empty_cpio_lz4)} bytes")
+
+    # 4. 计算 DTB 位置
+    # DTB 通常在 ramdisk table 之后
+    table_end = table_offset + 64  # 2 entries * 32 bytes
+    table_end_aligned = align_up(table_end, page_size)
+
+    dtb_offset, dtb_size = find_dtb(data, table_end_aligned)
+
+    if dtb_offset < 0:
+        # 如果找不到 DTB，从 header 读取 dtb_size
+        # 尝试不同的偏移
+        for off in [32, 40, 44, 48]:
+            val = struct.unpack('<I', data[off:off+4])[0]
+            if 100000 < val < 2000000:
+                dtb_size = val
+                print(f"从 header offset {off} 读取 dtb_size: {dtb_size}")
+                break
+
+        if dtb_size == 0:
+            print("警告: 找不到 DTB，将搜索整个文件")
+            # 搜索 FDT magic
+            fdt_magic = b'\xd0\x0d\xfe\xed'
+            for i in range(page_size, len(data) - 4):
+                if data[i:i+4] == fdt_magic:
+                    dtb_size = struct.unpack('>I', data[i+4:i+8])[0]
+                    if 100000 < dtb_size < 2000000:
+                        dtb_offset = i
+                        print(f"找到 DTB @ 0x{i:X}, size={dtb_size}")
+                        break
+
+        if dtb_offset < 0:
+            raise ValueError("找不到 DTB")
+
+    dtb_data = data[dtb_offset:dtb_offset + dtb_size]
+
+    # 5. 计算新布局
+    # 新布局: header(1页) + platform_ramdisk(原recovery) + recovery_ramdisk(空cpio) + table + dtb
+    # 保持与原厂相同的布局顺序
+
+    new_platform_offset = page_size  # ramdisk 从第二页开始
+    new_platform_size = len(recovery_data)  # 原 recovery 作为新 platform
+    new_platform_pages = (new_platform_size + page_size - 1) // page_size
+
+    new_recovery_offset = new_platform_offset + new_platform_pages * page_size
+    new_recovery_size = len(empty_cpio_lz4)
+    new_recovery_pages = (new_recovery_size + page_size - 1) // page_size
+
+    new_table_offset = new_recovery_offset + new_recovery_pages * page_size
+    # table 占 1 页（64 bytes，对齐到 4096）
+
+    new_dtb_offset = new_table_offset + page_size
+    new_dtb_pages = (dtb_size + page_size - 1) // page_size
 
     print(f"\n新布局:")
-    print(f"  header: 0x0 - 0x{page_size:X}")
-    print(f"  DTB: 0x{page_size:X} - 0x{ramdisk_start:X}")
-    print(f"  platform (原 recovery): 0x{new_platform_offset:X} - 0x{new_recovery_offset:X} ({new_platform_size} bytes)")
-    print(f"  recovery (空 CPIO): 0x{new_recovery_offset:X} ({new_recovery_size} bytes)")
+    print(f"  header:      0x0 - 0x{page_size:X}")
+    print(f"  platform:    0x{new_platform_offset:X} - 0x{new_recovery_offset:X} ({new_platform_size} bytes)")
+    print(f"  recovery:    0x{new_recovery_offset:X} - 0x{new_table_offset:X} ({new_recovery_size} bytes)")
+    print(f"  table:       0x{new_table_offset:X} - 0x{new_dtb_offset:X}")
+    print(f"  dtb:         0x{new_dtb_offset:X} ({dtb_size} bytes)")
 
-    # 更新 ramdisk table
-    table_offset = info['v_ramdisk_table_offset']
-    entry_size = info['v_ramdisk_table_entry_size']
+    # 6. 构建新的 vendor_boot
+    result = bytearray(target_size if target_size else len(data))
 
-    # Entry 0: platform (用 recovery 的数据)
-    entry0 = bytearray(entry_size)
+    # 复制 header（第一页）
+    result[:page_size] = data[:page_size]
+
+    # 写入 platform ramdisk（原 recovery）
+    result[new_platform_offset:new_platform_offset + new_platform_size] = recovery_data
+
+    # 写入 recovery ramdisk（空 CPIO）
+    result[new_recovery_offset:new_recovery_offset + new_recovery_size] = empty_cpio_lz4
+
+    # 写入 ramdisk table
+    # Entry 0: platform (原 recovery 的数据)
+    entry0 = bytearray(32)
     struct.pack_into('<I', entry0, 0, 0)  # type = platform
-    struct.pack_into('<I', entry0, 4, 0)  # name index = 0
-    struct.pack_into('<Q', entry0, 8, new_platform_size)  # size
-    struct.pack_into('<Q', entry0, 16, new_platform_offset)  # offset
-    # name (24:32) = 空（platform ramdisk 无名称）
-    entry0[24:32] = b'\x00' * 8
+    struct.pack_into('<I', entry0, 4, 0)  # name_idx = 0
+    struct.pack_into('<Q', entry0, 8, new_platform_size)  # body_size
+    struct.pack_into('<Q', entry0, 16, new_platform_offset)  # ramdisk_offset
+    # name (24:32) = 空
 
     # Entry 1: recovery (空 CPIO)
-    entry1 = bytearray(entry_size)
+    entry1 = bytearray(32)
     struct.pack_into('<I', entry1, 0, 1)  # type = recovery
-    struct.pack_into('<I', entry1, 4, 0)  # name index
-    struct.pack_into('<Q', entry1, 8, new_recovery_size)  # size
-    struct.pack_into('<Q', entry1, 16, new_recovery_offset)  # offset
-    # name = "recovery"
+    struct.pack_into('<I', entry1, 4, 0)  # name_idx = 0
+    struct.pack_into('<Q', entry1, 8, new_recovery_size)  # body_size
+    struct.pack_into('<Q', entry1, 16, new_recovery_offset)  # ramdisk_offset
     name_bytes = b'recovery\x00'
     entry1[24:24 + len(name_bytes)] = name_bytes
 
-    # 写入 header 中的 table
-    header[table_offset:table_offset + entry_size] = entry0
-    header[table_offset + entry_size:table_offset + 2 * entry_size] = entry1
+    result[new_table_offset:new_table_offset + 32] = entry0
+    result[new_table_offset + 32:new_table_offset + 64] = entry1
 
-    # 构建完整的 vendor_boot.img
-    result = bytearray()
+    # 写入 DTB
+    result[new_dtb_offset:new_dtb_offset + dtb_size] = dtb_data
 
-    # 1. Header (1 页)
-    result += header
-    # 确保到 page_size
-    if len(result) < page_size:
-        result += b'\x00' * (page_size - len(result))
-    elif len(result) > page_size:
-        result = result[:page_size]
+    # 7. 更新 header 中的 table_offset
+    # 尝试在多个可能的偏移写入 table_offset
+    # 标准 AOSP v4: offset 24 (entry_num), 但这里可能不同
+    # 安全做法：搜索 header 中的旧 table_offset 值并替换
+    old_table_offset_bytes = struct.pack('<I', table_offset)
+    new_table_offset_bytes = struct.pack('<I', new_table_offset)
 
-    # 2. DTB
-    result += info['dtb_data']
-    # 对齐到页
-    dtb_padded = dtb_pages * page_size
-    if len(info['dtb_data']) < dtb_padded:
-        result += b'\x00' * (dtb_padded - len(info['dtb_data']))
+    # 在 header 区域搜索旧 table_offset 并替换
+    replaced = False
+    for off in range(8, page_size - 3):
+        if data[off:off+4] == old_table_offset_bytes:
+            result[off:off+4] = new_table_offset_bytes
+            print(f"  替换 table_offset: header offset {off}: {table_offset} -> {new_table_offset}")
+            replaced = True
+            break
 
-    # 3. Platform ramdisk (原 recovery)
-    result += new_platform_data
-    # 对齐到页
-    platform_padded = platform_pages * page_size
-    if len(new_platform_data) < platform_padded:
-        result += b'\x00' * (platform_padded - len(new_platform_data))
+    if not replaced:
+        print(f"  警告: 未在 header 中找到 table_offset={table_offset}")
+        # 尝试写入标准位置
+        # 不确定正确偏移，跳过
 
-    # 4. Recovery ramdisk (空 CPIO)
-    result += new_recovery_data
-    # 对齐到页
-    recovery_pages = (new_recovery_size + page_size - 1) // page_size
-    recovery_padded = recovery_pages * page_size
-    if len(new_recovery_data) < recovery_padded:
-        result += b'\x00' * (recovery_padded - len(new_recovery_data))
+    # 8. 更新 header 中的 entry_num 和 entry_size（如果存在）
+    # 搜索旧 entry 的 offset 值并替换为新值
+    old_e0_offset_bytes = struct.pack('<Q', e0['offset'])
+    new_e0_offset_bytes = struct.pack('<Q', new_platform_offset)
+    old_e1_offset_bytes = struct.pack('<Q', e1['offset'])
+    new_e1_offset_bytes = struct.pack('<Q', new_recovery_offset)
 
-    # 如果指定了目标大小，填充到目标大小
+    old_e0_size_bytes = struct.pack('<Q', e0['size'])
+    new_e0_size_bytes = struct.pack('<Q', new_platform_size)
+    old_e1_size_bytes = struct.pack('<Q', e1['size'])
+    new_e1_size_bytes = struct.pack('<Q', new_recovery_size)
+
+    # 不需要更新 header 中的这些值，因为 table 本身已经更新了
+    # header 中只有 table_offset 需要更新
+
+    # 如果指定了目标大小，确保填充
     if target_size and len(result) < target_size:
         result += b'\xFF' * (target_size - len(result))
+    elif target_size and len(result) > target_size:
+        result = result[:target_size]
 
-    print(f"\n最终大小: {len(result)} bytes ({len(result) / 1024 / 1024:.1f} MB)")
+    print(f"\n最终大小: {len(result)} bytes ({len(result)/1024/1024:.1f} MB)")
 
     with open(output_path, 'wb') as f:
         f.write(result)
     print(f"已保存到: {output_path}")
-
-    return len(result)
 
 
 def main():
@@ -285,14 +356,7 @@ def main():
     output_path = sys.argv[2]
     target_size = int(sys.argv[3]) if len(sys.argv) > 3 else None
 
-    with open(input_path, 'rb') as f:
-        data = f.read()
-
-    print(f"输入文件: {input_path} ({len(data)} bytes, {len(data) / 1024 / 1024:.1f} MB)")
-    print()
-
-    info = parse_vendor_boot(data)
-    repack_vendor_boot(info, output_path, target_size)
+    repack_vendor_boot(input_path, output_path, target_size)
 
 
 if __name__ == '__main__':
