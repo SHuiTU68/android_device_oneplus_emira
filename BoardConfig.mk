@@ -238,7 +238,7 @@ BOARD_VENDOR_RAMDISK_DIR            := $(DEVICE_PATH)/vendor_ramdisk
 BOARD_VENDOR_RAMDISK_COMPRESSION    := lz4
 BOARD_VENDOR_RAMDISK_USE_LZ4        := true
 BOARD_VENDOR_RAMDISK_FSTAB          := $(DEVICE_PATH)/vendor_ramdisk/first_stage_ramdisk/fstab.mt6991
-BOARD_USES_GENERIC_VENDOR_RAMDISK   := true
+# BOARD_USES_GENERIC_VENDOR_RAMDISK := true  # 注释掉：使用自定义 vendor_ramdisk 而非 GKI 通用版本
 
 # se_omapi
 TW_INCLUDE_OMAPI := true
