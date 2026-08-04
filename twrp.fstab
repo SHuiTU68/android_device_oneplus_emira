@@ -31,7 +31,7 @@
 # ── 数据分区 ──
 # 加密参数：FBE v2，aes-256-xts 内容加密 + aes-256-cts 文件名加密
 # 加密参数：从原厂 first_stage_ramdisk/fstab.mt6991 原样提取
-/data               f2fs    /dev/block/by-name/userdata     flags=display=data;fsflags=noatime,nosuid,nodev,discard,noflush_merge,fsync_mode=nobarrier,reserve_root=134217,resgid=1065,inlinecrypt;fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized;keydirectory=/metadata/vold/metadata_encryption;fsverity
+/data               f2fs    /dev/block/by-name/userdata     flags=display=data;fsflags=noatime,nosuid,nodev,discard,noflush_merge,fsync_mode=nobarrier,reserve_root=134217,resgid=1065;fileencryption=aes-256-xts:aes-256-cts:v2;keydirectory=/metadata/vold/metadata_encryption
 
 # ── 系统支撑分区 ──
 /metadata           f2fs    /dev/block/by-name/metadata     flags=display=metadata

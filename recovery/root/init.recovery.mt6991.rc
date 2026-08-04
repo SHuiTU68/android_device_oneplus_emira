@@ -160,6 +160,9 @@ service vendor.gatekeeper-default /vendor/bin/hw/android.hardware.gatekeeper-ser
 
 on property:crypto.ready=1
     start mobicore
+
+# keymint 必须等 mobicore(TEE) 就绪后才能启动, 否则连接失败直接退出且不会重试
+on property:init.svc.mobicore=running
     start vendor.keymint-trustonic
 
 # gatekeeper 在 mobicore 就绪后才能启动（原厂设计如此）
