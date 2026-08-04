@@ -1,24 +1,19 @@
 name: Build OrangeFox Recovery
-
 on:
   workflow_dispatch:
   push:
     branches: [device_OP60EDL1]
-
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-
     steps:
       - name: Cleanup Actions Workspace
         uses: rokibhasansagar/slimhub_actions@main
-
       - name: 准备编译环境
         run: |
           sudo apt update && sudo apt upgrade -y
@@ -29,13 +24,11 @@ jobs:
           sudo bash setup/android_build_env.sh
           sed -i 's/cd -/cd ../g' setup/install_android_sdk.sh
           sudo bash setup/install_android_sdk.sh
-
       - name: 安装 OpenJDK 11
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '11'
-
       - name: 创建工作目录
         id: pwd
         run: |
@@ -47,18 +40,15 @@ jobs:
           git clone https://gitlab.com/OrangeFox/sync.git
           cd sync
           ./orangefox_sync.sh --branch 14.1 --path ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1
-
       - name: 检出设备树
         run: |
           git clone ${{ github.server_url }}/${{ github.repository }} \
             -b ${{ github.ref_name }} \
             ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1
-
       - name: 设置 Swap
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 12
-
       - name: 编译 OrangeFox Recovery
         run: |
           cd ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1
@@ -68,25 +58,50 @@ jobs:
           make clean
           mka adbd vendorbootimage -j$(nproc --all)
         continue-on-error: true
-
       - name: 检查编译产物
         run: |
           ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/ || true
-
-      - name: 后处理：交换 ramdisk table 指针
+      - name: 后处理：原厂模板重新打包 vendor_boot (MTK 兼容)
         run: |
           VENDOR_BOOT=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
+          DEVICE_DIR=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1
           if [ ! -f "$VENDOR_BOOT" ]; then
             echo "vendor_boot.img 不存在，跳过后处理"
             exit 0
           fi
-          echo "=== 交换 ramdisk table 指针 ==="
           pip3 install lz4
-          python3 ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1/repack_vendor_boot.py \
-            "$VENDOR_BOOT" "${VENDOR_BOOT}.repacked" 100663296
-          echo "=== 替换 vendor_boot.img ==="
+          echo "=== 1. 从构建产物提取 TWRP recovery cpio ==="
+          python3 - "$VENDOR_BOOT" <<'PY'
+import sys, struct, lz4.block, re
+vb = open(sys.argv[1],'rb').read()
+# mkbootimg 标准布局: 最后一个 lz4 流 = recovery ramdisk (TWRP)
+mags = [m.start() for m in re.finditer(b'\x02\x21\x4c\x18', vb)]
+assert len(mags) >= 2, f'lz4 流数量异常: {len(mags)}'
+s2 = mags[-1]
+p = s2 + 4
+out = b''
+while p + 4 <= len(vb):
+    n = struct.unpack_from('<I', vb, p)[0]
+    p += 4
+    if n == 0:
+        break
+    blk = vb[p:p+n]
+    try:
+        out += lz4.block.decompress(blk, uncompressed_size=8388608)
+    except Exception:
+        out += lz4.block.decompress(blk, uncompressed_size=4194304)
+    p += n
+assert out[:6] == b'070701', 'recovery ramdisk 不是 cpio'
+open('recovery.cpio','wb').write(out)
+print(f'recovery.cpio = {len(out)} B')
+PY
+          echo "=== 2. 原厂模板 + TWRP 重新打包 ==="
+          python3 "$DEVICE_DIR/tools/repack_vendor_boot_v2.py" \
+            "$DEVICE_DIR/prebuilt/stock_vendor_boot_template.bin" \
+            recovery.cpio "${VENDOR_BOOT}.repacked" 100663296
+          echo "=== 3. 替换 vendor_boot.img ==="
           cp "${VENDOR_BOOT}.repacked" "$VENDOR_BOOT"
-          echo "=== 同步到 OrangeFox 镜像 ==="
+          echo "=== 4. 同步到 OrangeFox 镜像 ==="
           FOX_IMG=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/OrangeFox-R12.0-Unofficial-OP60EDL1.img
           if [ -f "$FOX_IMG" ]; then
             cp "$VENDOR_BOOT" "$FOX_IMG"
@@ -100,7 +115,6 @@ jobs:
             ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
             ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/*.zip
           if-no-files-found: warn
-
       - name: 上传到 Release
         uses: softprops/action-gh-release@v2
         if: success()
@@ -116,5 +130,5 @@ jobs:
             - FOX_VARIANT: c16
             - 基于 Android 14.1 (OrangeFox R12.0)
             - 刷入方式: fastboot flash vendor_boot vendor_boot.img
+            - 打包路线: 原厂模板(header+dtb) + TWRP ramdisk -> repack_vendor_boot_v2.py (MTK兼容)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

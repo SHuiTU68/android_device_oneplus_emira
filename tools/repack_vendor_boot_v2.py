@@ -56,20 +56,33 @@ def main():
     target = int(sys.argv[4]) if len(sys.argv) > 4 else 100663296
 
     d = open(src, 'rb').read()
-    print(f'原厂 vendor_boot: {len(d)} B')
+    print(f'输入: {len(d)} B')
 
-    # --- 解析原厂 ---
-    vrs_old = struct.unpack_from('<I', d, 24)[0]
-    dtb_size = struct.unpack_from('<I', d, 2100)[0]
-    dtb_off = align_up(PAGE + vrs_old)
-    dtb_data = d[dtb_off:dtb_off+dtb_size]
-    print(f'原厂: vendor_ramdisk_size={vrs_old} dtb@{dtb_off} size={dtb_size}')
-    if dtb_data[:4] == b'\xd7\xb7\xab\x1e':
-        print(f'  dtb = 64B容器 + FDT {dtb_size-64} B (完整保留)')
-    elif dtb_data[:4] == b'\xd0\x0d\xfe\xed':
-        print(f'  dtb = 裸 FDT {dtb_size} B')
+    # --- 解析 header + dtb ---
+    if len(d) < 1024*1024:
+        # 模板模式: 文件 = header(4096B) + dtb段(完整, 64B容器+FDT)
+        header = d[:PAGE]
+        dtb_data = d[PAGE:]
+        dtb_size = len(dtb_data)
+        print(f'模板模式: header(4096B) + dtb({dtb_size}B)')
+        if dtb_data[:4] == b'\xd7\xb7\xab\x1e':
+            print(f'  dtb = 64B容器 + FDT {dtb_size-64} B')
+        elif dtb_data[:4] == b'\xd0\x0d\xfe\xed':
+            print(f'  dtb = 裸 FDT {dtb_size} B')
     else:
-        print(f'  警告: dtb 头={dtb_data[:8].hex()}')
+        # 原厂完整镜像模式: 从 align_up(4096+vendor_ramdisk_size) 提取 dtb
+        header = d[:PAGE]
+        vrs_old = struct.unpack_from('<I', header, 24)[0]
+        dtb_size = struct.unpack_from('<I', header, 2100)[0]
+        dtb_off = align_up(PAGE + vrs_old)
+        dtb_data = d[dtb_off:dtb_off+dtb_size]
+        print(f'原厂模式: vendor_ramdisk_size={vrs_old} dtb@{dtb_off} size={dtb_size}')
+        if dtb_data[:4] == b'\xd7\xb7\xab\x1e':
+            print(f'  dtb = 64B容器 + FDT {dtb_size-64} B (完整保留)')
+        elif dtb_data[:4] == b'\xd0\x0d\xfe\xed':
+            print(f'  dtb = 裸 FDT {dtb_size} B')
+        else:
+            print(f'  警告: dtb 头={dtb_data[:8].hex()}')
 
     # --- TWRP / 空 cpio 压缩 ---
     twrp = open(twrp_cpio, 'rb').read()
@@ -94,7 +107,7 @@ def main():
         sys.exit(1)
 
     result = bytearray(target)
-    result[:PAGE] = d[:PAGE]                      # header 原样
+    result[:PAGE] = header                      # header 原样
     struct.pack_into('<I', result, 24, new_vrs)   # 更新 vendor_ramdisk_size
     result[new_s1_off:new_s1_off+len(twrp_lz4)] = twrp_lz4
     result[new_s2_off:new_s2_off+len(empty_lz4)] = empty_lz4
