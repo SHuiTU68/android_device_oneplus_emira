@@ -79,7 +79,7 @@ jobs:
           echo "=== 交换 ramdisk table 指针 ==="
           pip3 install lz4
           python3 ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1/repack_vendor_boot.py \
-            "$VENDOR_BOOT" "${VENDOR_BOOT}.repacked"
+            "$VENDOR_BOOT" "${VENDOR_BOOT}.repacked" 100663296
           echo "=== 替换 vendor_boot.img ==="
           cp "${VENDOR_BOOT}.repacked" "$VENDOR_BOOT"
           echo "=== 同步到 OrangeFox 镜像 ==="
