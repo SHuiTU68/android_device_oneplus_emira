@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
 重新打包 vendor_boot.img：
-  在原 platform ramdisk 位置写入空 CPIO，然后交换 table 指针。
+  1. 搜索 LZ4 legacy magic 定位 ramdisk 数据块
+  2. 通过 ramdisk 数据块的偏移反查 ramdisk table
+  3. 把 recovery ramdisk 作为新的 platform ramdisk
+  4. 创建空的 CPIO 作为新的 recovery ramdisk
+  5. 重新打包 vendor_boot.img
 
-  用户验证过的方案：
-  - platform ramdisk → TWRP recovery.cpio（原 recovery ramdisk 数据）
-  - recovery ramdisk → 空 CPIO
-
-用法：python3 repack_vendor_boot.py <vendor_boot.img> <output.img>
+用法：python3 repack_vendor_boot.py <vendor_boot.img> <output.img> [target_size]
 """
 
 import struct
 import sys
 import lz4.block
 
+PAGE_SIZE = 4096
 LZ4_LEGACY_MAGIC = b'\x02\x21\x4c\x18'
+FDT_MAGIC = b'\xd0\x0d\xfe\xed'
 
 
 def create_empty_cpio():
@@ -43,319 +45,453 @@ def create_empty_cpio():
 def lz4_legacy_compress(data):
     """用 LZ4 Legacy 格式压缩数据"""
     result = bytearray(LZ4_LEGACY_MAGIC)
-    compressed = lz4.block.compress(
-        data, mode='high_compression', compression=12, store_size=False
-    )
-    result += struct.pack('<I', len(compressed))
-    result += compressed
+    block_size = 8 * 1024 * 1024
+    offset = 0
+    while offset < len(data):
+        chunk = data[offset:offset + block_size]
+        compressed = lz4.block.compress(
+            chunk, mode='high_compression', compression=12, store_size=False
+        )
+        result += struct.pack('<I', len(compressed))
+        result += compressed
+        offset += block_size
     result += struct.pack('<I', 0)  # end marker
     return bytes(result)
 
 
-def calculate_lz4_size(data, start):
-    """计算 LZ4 legacy 流的总大小。返回 -1 表示无效。"""
-    file_len = len(data)
-    if start + 8 > file_len:
-        return -1
-    if data[start:start+4] != LZ4_LEGACY_MAGIC:
-        return -1
+def align_up(val, alignment):
+    return (val + alignment - 1) // alignment * alignment
 
-    offset = start + 4
-    total = 4
 
-    while offset + 4 <= file_len:
+def find_lz4_blocks(data):
+    """搜索文件中所有 LZ4 legacy magic 的位置"""
+    positions = []
+    pos = 0
+    while True:
+        pos = data.find(LZ4_LEGACY_MAGIC, pos)
+        if pos == -1:
+            break
+        positions.append(pos)
+        pos += 1
+    return positions
+
+
+def lz4_legacy_decompress(data):
+    """解压 LZ4 legacy 格式数据"""
+    offset = 4  # skip magic
+    decompressed = b''
+    while offset < len(data) - 4:
         bsize = struct.unpack('<I', data[offset:offset+4])[0]
         offset += 4
-        total += 4
-
         if bsize == 0:
-            return total  # end marker
-
+            break
         actual_size = bsize & 0x7FFFFFFF
-        if offset + actual_size > file_len:
-            return -1  # 无效
-
+        if offset + actual_size > len(data):
+            break
+        block_data = data[offset:offset+actual_size]
         offset += actual_size
-        total += actual_size
+        try:
+            dec = lz4.block.decompress(block_data, uncompressed_size=8388608)
+            decompressed += dec
+        except:
+            try:
+                dec = lz4.block.decompress(block_data, uncompressed_size=4194304)
+                decompressed += dec
+            except:
+                break
+    return decompressed
+
+
+def find_ramdisk_table(data, lz4_positions):
+    """
+    通过 LZ4 块的偏移反查 ramdisk table。
+    table entry 格式: type(4) + name_idx(4) + body_size(8) + ramdisk_offset(8) + name(8) = 32 bytes
+    """
+    data_len = len(data)
+
+    for lz4_off in lz4_positions:
+        # 搜索 header 区域（第一页）中包含此偏移的 8 字节值
+        offset_bytes = struct.pack('<Q', lz4_off)
+        for header_pos in range(8, PAGE_SIZE - 7):
+            if data[header_pos:header_pos+8] == offset_bytes:
+                # 找到了！这可能是 table entry 中的 ramdisk_offset 字段
+                # table entry 中 offset 在 position 16-23
+                table_entry_start = header_pos - 16
+                if table_entry_start < 0:
+                    continue
+
+                # 读取 entry
+                entry = data[table_entry_start:table_entry_start+32]
+                if len(entry) < 32:
+                    continue
+
+                v_type = struct.unpack('<I', entry[0:4])[0]
+                v_size = struct.unpack('<Q', entry[8:16])[0]
+
+                # 验证 type (0=platform, 1=recovery)
+                if v_type > 2:
+                    continue
+                # 验证 size
+                if v_size < 100 or v_size > data_len:
+                    continue
+
+                print(f"  可能的 table entry @ header offset {table_entry_start}: type={v_type}, size={v_size}, offset=0x{lz4_off:X}")
+
+                # 检查是否是 table 的一部分（相邻 32 字节应该是另一个 entry）
+                # Entry 0 在前，Entry 1 在后
+                if v_type == 0:
+                    # 这是 platform entry，检查下一个 entry
+                    next_entry = data[table_entry_start+32:table_entry_start+64]
+                    if len(next_entry) >= 32:
+                        next_type = struct.unpack('<I', next_entry[0:4])[0]
+                        if next_type == 1:
+                            next_size = struct.unpack('<Q', next_entry[8:16])[0]
+                            next_offset = struct.unpack('<Q', next_entry[16:24])[0]
+                            next_name = next_entry[24:32].rstrip(b'\x00').decode('ascii', errors='replace')
+                            if 100 < next_size < data_len and PAGE_SIZE < next_offset < data_len:
+                                print(f"  确认! table @ offset {table_entry_start}")
+                                return table_entry_start
+
+                elif v_type == 1:
+                    # 这是 recovery entry，检查前一个 entry
+                    prev_entry = data[table_entry_start-32:table_entry_start]
+                    if len(prev_entry) >= 32 and table_entry_start >= 32:
+                        prev_type = struct.unpack('<I', prev_entry[0:4])[0]
+                        if prev_type == 0:
+                            prev_size = struct.unpack('<Q', prev_entry[8:16])[0]
+                            prev_offset = struct.unpack('<Q', prev_entry[16:24])[0]
+                            if 100 < prev_size < data_len and PAGE_SIZE < prev_offset < data_len:
+                                print(f"  确认! table @ offset {table_entry_start-32}")
+                                return table_entry_start - 32
+
+    # 如果在 header 中没找到，搜索整个文件
+    for lz4_off in lz4_positions:
+        offset_bytes = struct.pack('<Q', lz4_off)
+        search_pos = 0
+        while True:
+            found = data.find(offset_bytes, search_pos)
+            if found == -1 or found > data_len - 32:
+                break
+            search_pos = found + 1
+
+            # 检查 found 是否是 entry 中的 offset 字段 (offset 16-23 in entry)
+            entry_start = found - 16
+            if entry_start < 0:
+                continue
+
+            entry = data[entry_start:entry_start+32]
+            if len(entry) < 32:
+                continue
+
+            v_type = struct.unpack('<I', entry[0:4])[0]
+            v_size = struct.unpack('<Q', entry[8:16])[0]
+
+            if v_type > 2:
+                continue
+            if v_size < 100 or v_size > data_len:
+                continue
+
+            # 验证 LZ4 magic 在 offset 处
+            if data[lz4_off:lz4_off+4] != LZ4_LEGACY_MAGIC:
+                continue
+
+            print(f"  全文搜索: entry @ 0x{entry_start:X}: type={v_type}, size={v_size}, offset=0x{lz4_off:X}")
+
+            if v_type == 0:
+                next_entry = data[entry_start+32:entry_start+64]
+                if len(next_entry) >= 32:
+                    next_type = struct.unpack('<I', next_entry[0:4])[0]
+                    if next_type == 1:
+                        next_size = struct.unpack('<Q', next_entry[8:16])[0]
+                        next_offset = struct.unpack('<Q', next_entry[16:24])[0]
+                        if 100 < next_size < data_len and PAGE_SIZE < next_offset < data_len:
+                            print(f"  确认! table @ 0x{entry_start:X}")
+                            return entry_start
+
+            elif v_type == 1:
+                if entry_start >= 32:
+                    prev_entry = data[entry_start-32:entry_start]
+                    prev_type = struct.unpack('<I', prev_entry[0:4])[0]
+                    if prev_type == 0:
+                        prev_size = struct.unpack('<Q', prev_entry[8:16])[0]
+                        prev_offset = struct.unpack('<Q', prev_entry[16:24])[0]
+                        if 100 < prev_size < data_len and PAGE_SIZE < prev_offset < data_len:
+                            print(f"  确认! table @ 0x{entry_start-32:X}")
+                            return entry_start - 32
 
     return -1
 
 
-def find_ramdisks(data):
-    """
-    搜索所有 LZ4 legacy magic，计算每个的 size。
-    只保留 size > 100000 的（过滤假 magic）。
-    不跳过数据，逐个 magic 检查。
-    """
-    file_len = len(data)
-    ramdisks = []
-    pos = 0
-
-    while pos < file_len - 4:
-        pos = data.find(LZ4_LEGACY_MAGIC, pos)
-        if pos == -1:
-            break
-
-        size = calculate_lz4_size(data, pos)
-        if size > 100000 and size < file_len:
-            ramdisks.append((pos, size))
-
-        pos += 4  # 只跳过 magic，不跳过整个 ramdisk
-
-    return ramdisks
-
-
-def parse_header_v4(data):
-    """
-    解析 VNDRBOOT v4 header。
-    返回 (table_offset, entry_num, entry_size, dtb_size) 或 None。
-    """
-    if data[:8] != b'VNDRBOOT':
-        return None
-
-    header_version = struct.unpack('<I', data[8:12])[0]
-    page_size = struct.unpack('<I', data[12:16])[0]
-
-    print(f"  VNDRBOOT v{header_version}, page_size={page_size}")
-
-    # dump header 前 64 字节
-    for i in range(0, 64, 16):
-        hex_str = ' '.join(f'{b:02x}' for b in data[i:i+16])
-        print(f"  header 0x{i:02X}: {hex_str}")
-
-    # 标准 AOSP v4: offset 24 = table_offset, 28 = entry_num, 32 = entry_size, 36 = dtb_size
-    table_offset = struct.unpack('<I', data[24:28])[0]
-    entry_num = struct.unpack('<I', data[28:32])[0]
-    entry_size = struct.unpack('<I', data[32:36])[0]
-    dtb_size = struct.unpack('<I', data[36:40])[0]
-
-    print(f"  header v4: table_offset={table_offset}, entry_num={entry_num}, entry_size={entry_size}, dtb_size={dtb_size}")
-
-    # 验证
-    if 0 < entry_num < 10 and 0 < entry_size < 100 and 0 < table_offset < len(data):
-        return table_offset, entry_num, entry_size, dtb_size
-
-    return None
-
-
-def repack_vendor_boot(input_path, output_path):
+def repack_vendor_boot(input_path, output_path, target_size=None):
     with open(input_path, 'rb') as f:
         data = bytearray(f.read())
 
     print(f"输入文件: {input_path} ({len(data)} bytes, {len(data)/1024/1024:.1f} MB)")
 
+    # 验证 VNDRBOOT magic
     if data[:8] != b'VNDRBOOT':
         raise ValueError(f"Invalid magic: {data[:8]}")
 
     page_size = struct.unpack('<I', data[12:16])[0]
+    print(f"page_size: {page_size}")
 
-    # 方案 1：从 header 读取 table_offset
-    header_info = parse_header_v4(data)
+    # 调试：dump header 前 128 字节
+    print("\n=== Header dump (前 128 字节) ===")
+    for i in range(0, min(128, len(data)), 16):
+        hex_str = ' '.join(f'{b:02x}' for b in data[i:i+16])
+        ascii_str = ''.join(chr(b) if 32 <= b < 127 else '.' for b in data[i:i+16])
+        print(f"  0x{i:04X}: {hex_str}  {ascii_str}")
 
-    platform_offset = None
-    platform_size = None
-    recovery_offset = None
-    recovery_size = None
-    table_offset = None
-    use_8byte = False
+    # 1. 搜索 LZ4 legacy magic
+    lz4_positions = find_lz4_blocks(data)
+    print(f"\n找到 {len(lz4_positions)} 个 LZ4 legacy magic:")
+    for pos in lz4_positions[:10]:
+        print(f"  0x{pos:08X} ({pos})")
 
-    if header_info:
-        table_offset, entry_num, entry_size, dtb_size = header_info
-        print(f"\n从 header 读取 table @ 0x{table_offset:X}, {entry_num} entries")
+    if len(lz4_positions) < 2:
+        print("错误: 找不到足够的 LZ4 块")
+        # 尝试搜索其他压缩格式
+        # gzip
+        gzip_pos = data.find(b'\x1f\x8b\x08')
+        if gzip_pos != -1:
+            print(f"找到 gzip @ 0x{gzip_pos:X}")
+        # 搜索 CPIO magic
+        cpio_pos = data.find(b'070701')
+        if cpio_pos != -1:
+            print(f"找到 CPIO @ 0x{cpio_pos:X}")
+        raise ValueError("找不到足够的 LZ4 块")
 
-        # 解析 table entries
-        for i in range(entry_num):
-            off = table_offset + i * entry_size
-            entry = data[off:off + entry_size]
-            if len(entry) < entry_size:
-                break
-
-            # 尝试 4 字节格式: name_size(4) + type(4) + name_offset(4) + size(4) + offset(4) + flags(4) + name(8)
-            e_type_4 = struct.unpack('<I', entry[4:8])[0]
-            e_size_4 = struct.unpack('<I', entry[12:16])[0]
-            e_offset_4 = struct.unpack('<I', entry[16:20])[0]
-
-            # 尝试 8 字节格式: type(4) + name_idx(4) + size(8) + offset(8) + name(8)
-            e_type_8 = struct.unpack('<I', entry[0:4])[0]
-            e_size_8 = struct.unpack('<Q', entry[8:16])[0]
-            e_offset_8 = struct.unpack('<Q', entry[16:24])[0]
-
-            # 验证 4 字节格式
-            if e_type_4 <= 2 and 100 < e_size_4 < len(data) and page_size <= e_offset_4 < len(data):
-                # 检查 offset 处是否是 LZ4 magic
-                if data[e_offset_4:e_offset_4+4] == LZ4_LEGACY_MAGIC:
-                    actual_size = calculate_lz4_size(data, e_offset_4)
-                    if actual_size > 0:
-                        print(f"  Entry {i}: type={e_type_4}, size={e_size_4}, offset=0x{e_offset_4:X} (4字节格式, lz4_size={actual_size})")
-                        if e_type_4 == 0:
-                            platform_offset = e_offset_4
-                            platform_size = e_size_4
-                            use_8byte = False
-                        elif e_type_4 == 1:
-                            recovery_offset = e_offset_4
-                            recovery_size = e_size_4
-                            use_8byte = False
-
-            # 验证 8 字节格式
-            elif e_type_8 <= 2 and 100 < e_size_8 < len(data) and page_size <= e_offset_8 < len(data):
-                if data[e_offset_8:e_offset_8+4] == LZ4_LEGACY_MAGIC:
-                    actual_size = calculate_lz4_size(data, e_offset_8)
-                    if actual_size > 0:
-                        print(f"  Entry {i}: type={e_type_8}, size={e_size_8}, offset=0x{e_offset_8:X} (8字节格式, lz4_size={actual_size})")
-                        if e_type_8 == 0:
-                            platform_offset = e_offset_8
-                            platform_size = e_size_8
-                            use_8byte = True
-                        elif e_type_8 == 1:
-                            recovery_offset = e_offset_8
-                            recovery_size = e_size_8
-                            use_8byte = True
-
-    # 方案 2：搜索 LZ4 magic
-    if platform_offset is None or recovery_offset is None:
-        print(f"\nheader 解析未找到所有 ramdisk，搜索 LZ4 magic...")
-        ramdisks = find_ramdisks(data)
-        print(f"找到 {len(ramdisks)} 个有效的 LZ4 ramdisk:")
-        for i, (offset, size) in enumerate(ramdisks):
-            print(f"  [{i}] offset=0x{offset:X}, size={size} ({size/1024/1024:.1f} MB)")
-
-        if len(ramdisks) >= 2:
-            platform_offset, platform_size = ramdisks[0]
-            recovery_offset, recovery_size = ramdisks[1]
-            # 还需要找到 table
-            table_offset = None
-
-    if platform_offset is None or recovery_offset is None:
-        raise ValueError("找不到两个 ramdisk")
-
-    print(f"\nPlatform ramdisk: offset=0x{platform_offset:X}, size={platform_size} ({platform_size/1024/1024:.1f} MB)")
-    print(f"Recovery ramdisk: offset=0x{recovery_offset:X}, size={recovery_size} ({recovery_size/1024/1024:.1f} MB)")
-
-    # 搜索 table
-    if table_offset is None:
-        table_offset = find_table_by_values(data, platform_offset, platform_size, recovery_offset, recovery_size, use_8byte)
-        if table_offset < 0:
-            # 尝试另一种格式
-            use_8byte = not use_8byte
-            table_offset = find_table_by_values(data, platform_offset, platform_size, recovery_offset, recovery_size, use_8byte)
-            if table_offset >= 0:
-                print(f"  table 格式切换为 {'8' if use_8byte else '4'} 字节")
-
+    # 2. 通过 LZ4 块偏移反查 table
+    table_offset = find_ramdisk_table(data, lz4_positions)
     if table_offset < 0:
-        raise ValueError("找不到 ramdisk table")
+        print("\n无法通过反查找到 table，尝试直接解析 header...")
 
-    print(f"Table @ 0x{table_offset:X}, 格式: {'8' if use_8byte else '4'} 字节")
+        # 尝试标准 AOSP v4 header 格式
+        # offset 24: v_ramdisk_table_offset
+        table_offset = struct.unpack('<I', data[24:28])[0]
+        entry_num = struct.unpack('<I', data[28:32])[0]
+        entry_size = struct.unpack('<I', data[32:36])[0]
+
+        print(f"  header v4: table_offset={table_offset}, entry_num={entry_num}, entry_size={entry_size}")
+
+        # 验证
+        if entry_num > 0 and entry_num < 10 and entry_size > 0 and entry_size < 100:
+            if table_offset > 0 and table_offset < len(data):
+                entry = data[table_offset:table_offset+32]
+                v_type = struct.unpack('<I', entry[0:4])[0]
+                if v_type <= 2:
+                    print(f"  header v4 格式有效!")
+                else:
+                    print(f"  header v4 格式无效 (type={v_type})")
+                    table_offset = -1
+            else:
+                table_offset = -1
+        else:
+            table_offset = -1
+
+        if table_offset < 0:
+            # 最后手段：假设 LZ4 块就是 ramdisk，按顺序排列
+            print("\n使用 LZ4 块直接作为 ramdisk...")
+            if len(lz4_positions) >= 2:
+                # 第一个 LZ4 块 = platform, 第二个 = recovery
+                platform_offset = lz4_positions[0]
+                recovery_offset = lz4_positions[1]
+
+                # 读取 platform size（LZ4 legacy: 压缩数据从 magic 后开始）
+                # 需要计算整个 LZ4 流的大小
+                platform_size = calculate_lz4_size(data, platform_offset)
+                recovery_size = calculate_lz4_size(data, recovery_offset)
+
+                print(f"  platform: offset=0x{platform_offset:X}, size={platform_size}")
+                print(f"  recovery: offset=0x{recovery_offset:X}, size={recovery_size}")
+
+                # 直接交换
+                do_swap(data, platform_offset, platform_size,
+                        recovery_offset, recovery_size,
+                        output_path, target_size, page_size, table_offset=-1)
+                return
+
+    if table_offset >= 0:
+        # 读取 table entries
+        entry0 = data[table_offset:table_offset+32]
+        entry1 = data[table_offset+32:table_offset+64]
+
+        e0_type = struct.unpack('<I', entry0[0:4])[0]
+        e0_size = struct.unpack('<Q', entry0[8:16])[0]
+        e0_offset = struct.unpack('<Q', entry0[16:24])[0]
+
+        e1_type = struct.unpack('<I', entry1[0:4])[0]
+        e1_size = struct.unpack('<Q', entry1[8:16])[0]
+        e1_offset = struct.unpack('<Q', entry1[16:24])[0]
+        e1_name = entry1[24:32].rstrip(b'\x00').decode('ascii', errors='replace')
+
+        print(f"\nTable @ 0x{table_offset:X}:")
+        print(f"  Entry 0: type={e0_type}, size={e0_size}, offset=0x{e0_offset:X}")
+        print(f"  Entry 1: type={e1_type}, size={e1_size}, offset=0x{e1_offset:X}, name=\"{e1_name}\"")
+
+        # 提取数据
+        platform_data = data[e0_offset:e0_offset + e0_size]
+        recovery_data = data[e1_offset:e1_offset + e1_size]
+
+        do_swap(data, e0_offset, e0_size, e1_offset, e1_size,
+                output_path, target_size, page_size, table_offset,
+                platform_data, recovery_data)
+
+
+def calculate_lz4_size(data, start):
+    """计算 LZ4 legacy 流的总大小"""
+    offset = start + 4  # skip magic
+    total = 4
+    while offset < len(data) - 4:
+        bsize = struct.unpack('<I', data[offset:offset+4])[0]
+        offset += 4
+        total += 4
+        if bsize == 0:
+            break
+        actual_size = bsize & 0x7FFFFFFF
+        offset += actual_size
+        total += actual_size
+    return total
+
+
+def do_swap(data, e0_offset, e0_size, e1_offset, e1_size,
+            output_path, target_size, page_size, table_offset,
+            platform_data=None, recovery_data=None):
+    """执行交换并写出"""
+
+    if platform_data is None:
+        platform_data = data[e0_offset:e0_offset + e0_size]
+    if recovery_data is None:
+        recovery_data = data[e1_offset:e1_offset + e1_size]
+
+    print(f"\n原始 platform ramdisk: offset=0x{e0_offset:X}, size={e0_size} ({e0_size/1024/1024:.1f} MB)")
+    print(f"原始 recovery ramdisk: offset=0x{e1_offset:X}, size={e1_size} ({e1_size/1024/1024:.1f} MB)")
 
     # 创建空 CPIO 并压缩
     empty_cpio = create_empty_cpio()
     empty_cpio_lz4 = lz4_legacy_compress(empty_cpio)
-    print(f"\n空 CPIO: {len(empty_cpio)} bytes -> LZ4: {len(empty_cpio_lz4)} bytes")
+    print(f"空 CPIO: {len(empty_cpio)} bytes -> LZ4: {len(empty_cpio_lz4)} bytes")
 
-    # 在原 platform ramdisk 位置写入空 CPIO
-    print(f"在原 platform 位置 0x{platform_offset:X} 写入空 CPIO ({len(empty_cpio_lz4)} bytes)")
-    data[platform_offset:platform_offset + len(empty_cpio_lz4)] = empty_cpio_lz4
-    remaining = platform_size - len(empty_cpio_lz4)
-    if remaining > 0:
-        data[platform_offset + len(empty_cpio_lz4):platform_offset + platform_size] = b'\x00' * remaining
+    # 查找 DTB
+    dtb_offset = -1
+    dtb_size = 0
+    pos = 0
+    while pos < len(data) - 4:
+        idx = data.find(FDT_MAGIC, pos)
+        if idx == -1:
+            break
+        if idx + 8 <= len(data):
+            dsize = struct.unpack('>I', data[idx+4:idx+8])[0]
+            if 100000 < dsize < 2000000:
+                dtb_offset = idx
+                dtb_size = dsize
+                print(f"找到 DTB @ 0x{idx:X}, size={dsize}")
+                break
+        pos = idx + 1
 
-    # 修改 table 指针
-    entry0 = bytearray(data[table_offset:table_offset + 32])
-    entry1 = bytearray(data[table_offset + 32:table_offset + 64])
-
-    if use_8byte:
-        # 8字节格式: type(4) + name_idx(4) + size(8) + offset(8) + name(8)
-        struct.pack_into('<Q', entry0, 8, recovery_size)
-        struct.pack_into('<Q', entry0, 16, recovery_offset)
-        struct.pack_into('<Q', entry1, 8, len(empty_cpio_lz4))
-        struct.pack_into('<Q', entry1, 16, platform_offset)
+    if dtb_offset < 0:
+        print("警告: 找不到 DTB，将不包含 DTB")
+        dtb_data = b''
     else:
-        # 4字节格式: name_size(4) + type(4) + name_offset(4) + size(4) + offset(4) + flags(4) + name(8)
-        struct.pack_into('<I', entry0, 12, recovery_size)
-        struct.pack_into('<I', entry0, 16, recovery_offset)
-        struct.pack_into('<I', entry1, 12, len(empty_cpio_lz4))
-        struct.pack_into('<I', entry1, 16, platform_offset)
+        dtb_data = data[dtb_offset:dtb_offset + dtb_size]
 
-    data[table_offset:table_offset + 32] = entry0
-    data[table_offset + 32:table_offset + 64] = entry1
+    # 计算新布局
+    new_platform_offset = page_size
+    new_platform_size = len(recovery_data)  # 原 recovery 作为新 platform
+    new_platform_pages = (new_platform_size + page_size - 1) // page_size
 
-    print(f"\n交换完成:")
-    print(f"  Entry 0 (platform): offset=0x{recovery_offset:X}, size={recovery_size} ({recovery_size/1024/1024:.1f} MB) [TWRP 完整内容]")
-    print(f"  Entry 1 (recovery): offset=0x{platform_offset:X}, size={len(empty_cpio_lz4)} [空 CPIO]")
+    new_recovery_offset = new_platform_offset + new_platform_pages * page_size
+    new_recovery_size = len(empty_cpio_lz4)
+    new_recovery_pages = (new_recovery_size + page_size - 1) // page_size
+
+    new_table_offset = new_recovery_offset + new_recovery_pages * page_size
+
+    new_dtb_offset = new_table_offset + page_size
+
+    print(f"\n新布局:")
+    print(f"  header:   0x0 - 0x{page_size:X}")
+    print(f"  platform: 0x{new_platform_offset:X} ({new_platform_size} bytes)")
+    print(f"  recovery: 0x{new_recovery_offset:X} ({new_recovery_size} bytes)")
+    print(f"  table:    0x{new_table_offset:X}")
+    print(f"  dtb:      0x{new_dtb_offset:X} ({dtb_size} bytes)")
+
+    # 构建结果
+    total_needed = new_dtb_offset + align_up(dtb_size, page_size)
+    if target_size:
+        result_size = max(target_size, total_needed)
+    else:
+        result_size = max(len(data), total_needed)
+
+    result = bytearray(result_size)
+
+    # 复制 header
+    result[:page_size] = data[:page_size]
+
+    # 写入 platform ramdisk (原 recovery)
+    result[new_platform_offset:new_platform_offset + new_platform_size] = recovery_data
+
+    # 写入 recovery ramdisk (空 CPIO)
+    result[new_recovery_offset:new_recovery_offset + new_recovery_size] = empty_cpio_lz4
+
+    # 写入 ramdisk table
+    entry0 = bytearray(32)
+    struct.pack_into('<I', entry0, 0, 0)  # type = platform
+    struct.pack_into('<I', entry0, 4, 0)  # name_idx = 0
+    struct.pack_into('<Q', entry0, 8, new_platform_size)
+    struct.pack_into('<Q', entry0, 16, new_platform_offset)
+
+    entry1 = bytearray(32)
+    struct.pack_into('<I', entry1, 0, 1)  # type = recovery
+    struct.pack_into('<I', entry1, 4, 0)  # name_idx = 0
+    struct.pack_into('<Q', entry1, 8, new_recovery_size)
+    struct.pack_into('<Q', entry1, 16, new_recovery_offset)
+    name_bytes = b'recovery\x00'
+    entry1[24:24 + len(name_bytes)] = name_bytes
+
+    result[new_table_offset:new_table_offset + 32] = entry0
+    result[new_table_offset + 32:new_table_offset + 64] = entry1
+
+    # 写入 DTB
+    if dtb_data:
+        result[new_dtb_offset:new_dtb_offset + dtb_size] = dtb_data
+
+    # 更新 header 中的 table_offset
+    if table_offset >= 0:
+        old_table_offset_bytes = struct.pack('<I', table_offset)
+        new_table_offset_bytes = struct.pack('<I', new_table_offset)
+        for off in range(8, page_size - 3):
+            if data[off:off+4] == old_table_offset_bytes:
+                result[off:off+4] = new_table_offset_bytes
+                print(f"  替换 table_offset: header offset {off}: {table_offset} -> {new_table_offset}")
+                break
+        else:
+            # 尝试标准 v4 位置 (offset 24)
+            result[24:28] = new_table_offset_bytes
+            print(f"  写入 table_offset 到标准位置 (offset 24): {new_table_offset}")
+
+    # 填充到目标大小
+    if target_size and len(result) > target_size:
+        result = result[:target_size]
+    elif target_size and len(result) < target_size:
+        result += b'\xFF' * (target_size - len(result))
+
+    print(f"\n最终大小: {len(result)} bytes ({len(result)/1024/1024:.1f} MB)")
 
     with open(output_path, 'wb') as f:
-        f.write(data)
-
-    print(f"\n最终大小: {len(data)} bytes ({len(data)/1024/1024:.1f} MB)")
+        f.write(result)
     print(f"已保存到: {output_path}")
-
-
-def find_table_by_values(data, platform_offset, platform_size, recovery_offset, recovery_size, use_8byte):
-    """通过已知的 offset/size 值搜索 table 位置"""
-    file_len = len(data)
-
-    if use_8byte:
-        # 8字节格式: offset 在 entry position 16-23
-        search_val = struct.pack('<Q', platform_offset)
-    else:
-        # 4字节格式: offset 在 entry position 16-19
-        search_val = struct.pack('<I', platform_offset)
-
-    pos = 0
-    while pos < file_len - 64:
-        found = data.find(search_val, pos)
-        if found == -1:
-            break
-        pos = found + 1
-
-        entry_start = found - 16  # offset 字段在 entry 中 position 16
-        if entry_start < 0:
-            continue
-
-        entry = data[entry_start:entry_start + 32]
-        if len(entry) < 32:
-            continue
-
-        if use_8byte:
-            e_type = struct.unpack('<I', entry[0:4])[0]
-            e_size = struct.unpack('<Q', entry[8:16])[0]
-            e_offset = struct.unpack('<Q', entry[16:24])[0]
-
-            if e_type == 0 and e_size == platform_size and e_offset == platform_offset:
-                next_entry = data[entry_start + 32:entry_start + 64]
-                if len(next_entry) >= 32:
-                    n_type = struct.unpack('<I', next_entry[0:4])[0]
-                    n_size = struct.unpack('<Q', next_entry[8:16])[0]
-                    n_offset = struct.unpack('<Q', next_entry[16:24])[0]
-                    if n_type == 1 and n_size == recovery_size and n_offset == recovery_offset:
-                        print(f"  找到 table @ 0x{entry_start:X} (8字节格式)")
-                        return entry_start
-        else:
-            e_type = struct.unpack('<I', entry[4:8])[0]
-            e_size = struct.unpack('<I', entry[12:16])[0]
-            e_offset = struct.unpack('<I', entry[16:20])[0]
-
-            if e_type == 0 and e_size == platform_size and e_offset == platform_offset:
-                next_entry = data[entry_start + 32:entry_start + 64]
-                if len(next_entry) >= 32:
-                    n_type = struct.unpack('<I', next_entry[4:8])[0]
-                    n_size = struct.unpack('<I', next_entry[12:16])[0]
-                    n_offset = struct.unpack('<I', next_entry[16:20])[0]
-                    if n_type == 1 and n_size == recovery_size and n_offset == recovery_offset:
-                        print(f"  找到 table @ 0x{entry_start:X} (4字节格式)")
-                        return entry_start
-
-    return -1
 
 
 def main():
     if len(sys.argv) < 3:
-        print(f"用法: {sys.argv[0]} <vendor_boot.img> <output.img>")
+        print(f"用法: {sys.argv[0]} <vendor_boot.img> <output.img> [target_size]")
         sys.exit(1)
 
     input_path = sys.argv[1]
     output_path = sys.argv[2]
+    target_size = int(sys.argv[3]) if len(sys.argv) > 3 else None
 
-    repack_vendor_boot(input_path, output_path)
+    repack_vendor_boot(input_path, output_path, target_size)
 
 
 if __name__ == '__main__':
