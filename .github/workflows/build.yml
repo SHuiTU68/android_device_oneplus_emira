@@ -132,21 +132,3 @@ jobs:
             ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
             ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/*.zip
           if-no-files-found: warn
-      - name: 上传到 Release
-        uses: softprops/action-gh-release@v2
-        if: success()
-        with:
-          files: |
-            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
-          name: OrangeFox-OP60EDL1-${{ github.run_id }}
-          tag_name: ${{ github.run_id }}
-          body: |
-            OrangeFox Recovery for OnePlus Ace5 Ultra (OP60EDL1)
-            - 编译分支: ${{ github.ref_name }}
-            - 提交: ${{ github.sha }}
-            - FOX_VARIANT: c16
-            - 基于 Android 14.1 (OrangeFox R12.0)
-            - 刷入方式: fastboot flash vendor_boot vendor_boot.img
-            - 打包路线: 完整原厂 vendor_boot + TWRP ramdisk -> repack_vendor_boot_v2.py (TWRP 进 recovery 段)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
