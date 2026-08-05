@@ -10,27 +10,39 @@ MTK 布局 (实测原厂 1e9a0743):
   dtb 偏移 = page_align_up(4096 + VRS)
   vendor_ramdisk_table 全为 0 (MTK bootloader 不依赖它, 顺序解析两段 LZ4 流)
 
-bootloop 根因 (本次修复):
-  旧方案把 TWRP 放进 流2(recovery), 原厂 流1(platform) 原样保留。
-  进 recovery 时 bootloader 加载 流1 + 流2。流1 是原厂 platform ramdisk, 含
-  first_stage_ramdisk/fstab.mt6991 (挂载 system/vendor/odm, 带 avb+logical+
-  first_stage_mount)。该 fstab 在 recovery 环境下挂载失败 -> first_stage init
-  panic -> 重启循环 = bootloop。
+bootloop 根因 (方案A 双 bootloop):
+  方案A = 流1 保留原厂 platform, 流2 放 TWRP。系统+recovery 都 bootloop。
+  - 系统 bootloop: MTK bootloader 系统模式也加载流2, 流2=TWRP recovery.cpio 含 /init
+    (recovery init), 后加载覆盖 init_boot 的系统 init -> 不挂 system -> bootloop。
+  - recovery bootloop: 流1=原厂 platform 含 first_stage_ramdisk/fstab.mt6991
+    (挂 system/vendor/odm, avb+logical+first_stage_mount), recovery 环境执行
+    first_stage_mount 挂 avb+logical 分区 panic -> bootloop。
 
-  实测原厂 流2(recovery) 并没有 fstab.mt6991 (只有 recovery 专用的 fstab.emmc),
-  证明 recovery 不应挂载 system/vendor/odm 这些 avb+logical 分区。
+方案B (用户实测验证可行, 但纯 TWRP 流1 缺 .ko 导致功能残废):
+  - 流1 = TWRP recovery.cpio (替换原厂 platform)
+  - 流2 = 合法空 cpio (TRAILER!!!, 占位)
+  系统: init_boot /init 覆盖 TWRP /init -> 进系统 (但 TWRP cpio 只有 ~55 个 .ko,
+        缺显示/触摸/充电/存储/oplus 全系列 + 无 modules.load 元数据 -> 硬件残废,
+        如 data 挂载失败、fastbootd current-slot 空值)。
+  recovery: TWRP /init -> 进 TWRP (同样缺 .ko)。
 
-正确做法 (用户实测验证可行):
-  - 流1 = TWRP/OrangeFox recovery.cpio (替换原厂 platform)
-    进 recovery 时 bootloader 加载 流1, 用 TWRP 自己的 recovery init/fstab,
-    不执行原厂的 first_stage_mount -> 能进 TWRP。
-    正常开机不加载 vendor_boot ramdisk (用 init_boot ramdisk) -> 能进系统。
-  - 流2 = 合法空 cpio (只含 TRAILER!!!), 占位用, 不影响。
-  - 布局完全模仿原厂: 流1 无 end marker, 流2 有 end marker, VRS 公式不变。
-  - dtb 段从原厂原样保留, 仅重算 VRS。
+方案B+KO合并 (本次最终修复, 解决 .ko 缺失):
+  先用 merge_ko_into_cpio.py 把原厂流1(platform) 的 lib/modules/*.ko +
+  modules.load/.dep/.alias/.load.recovery/.softdep 注入 TWRP recovery.cpio,
+  得到"既有 TWRP init/recovery 二进制, 又有原厂完整 .ko"的合并 cpio。
+  - 流1 = 合并 cpio (TWRP + 原厂 .ko)
+  - 流2 = 合法空 cpio
+  系统: init_boot /init 覆盖 TWRP /init -> first_stage_mount (流1 fstab.mt6991)
+        + 原厂完整 .ko -> 进系统 + 硬件功能正常
+  recovery: TWRP /init -> TWRP first_stage (容错 fstab) + 原厂完整 .ko
+        -> 进 TWRP + 触摸/显示/存储正常
+
+布局完全模仿原厂: 流1 无 end marker, 流2 有 end marker, VRS 公式不变。
+dtb 段从原厂原样保留, 仅重算 VRS。
 
 用法:
-  python3 repack_vendor_boot_v2.py <完整原厂vendor_boot.img> <twrp_recovery.cpio> <输出.img> [target_size]
+  python3 repack_vendor_boot_v2.py <完整原厂vendor_boot.img> <合并后recovery.cpio> <输出.img> [target_size]
+  (合并 cpio 由 merge_ko_into_cpio.py 产出; 直接传 TWRP cpio 也能跑, 但缺 .ko)
 """
 import struct, sys, lz4.block
 
@@ -167,13 +179,15 @@ def main():
     print(f'原厂: 流1(platform)={len(s1_bytes)}B  流2(recovery)={len(s2_bytes)}B  '
           f'dtb@{dtb_off}({dtb_size}B)  vrs={vrs_old}')
 
-    # 方案B (用户实测验证): TWRP 放 流1, 空 cpio 放 流2
-    # 流1 = TWRP recovery.cpio (无 end marker, 模仿原厂流1, 后面直接接流2 magic)
+    # 方案B+KO合并 (最终修复): 合并 cpio 放 流1, 空 cpio 放 流2
+    # 流1 = 合并 cpio (TWRP + 原厂 .ko, 无 end marker, 模仿原厂流1, 后面直接接流2 magic)
     # 流2 = 合法空 cpio (有 end marker, 标准结束)
+    # 注: 传入的 twrp_cpio 应是 merge_ko_into_cpio.py 产出的合并 cpio;
+    #     若直接传纯 TWRP cpio 也能跑, 但缺 .ko 会导致硬件功能残废。
     twrp = open(twrp_cpio, 'rb').read()
     new_s1 = lz4_legacy_compress(twrp, with_end=False)   # 流1 无 end marker (模仿原厂)
     new_s2 = lz4_legacy_compress(make_empty_cpio(), with_end=True)  # 流2 空 cpio + end marker
-    print(f'TWRP recovery.cpio: {len(twrp)} B -> 流1 lz4 {len(new_s1)} B (无 end marker)')
+    print(f'合并/TWRP cpio: {len(twrp)} B -> 流1 lz4 {len(new_s1)} B (无 end marker)')
     print(f'空 cpio -> 流2 lz4 {len(new_s2)} B (有 end marker)')
 
     # VRS 公式与原厂一致: 流1(无marker) + 流2(含marker) - 4
