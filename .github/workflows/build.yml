@@ -88,31 +88,9 @@ jobs:
           fi
           pip3 install lz4
           sudo apt-get install -y lz4 >/dev/null 2>&1 || true
-          echo "=== 1. 从构建产物提取 TWRP recovery cpio ==="
-          python3 - "$VENDOR_BOOT" <<'PY'
-          import sys, struct, re
-          vb = open(sys.argv[1],'rb').read()
-          LZ4 = b'\x02\x21\x4c\x18'
-          # mkbootimg 标准布局: 最后一个 lz4 流 = recovery ramdisk (TWRP)
-          mags = [m.start() for m in re.finditer(re.escape(LZ4), vb)]
-          assert len(mags) >= 2, f'lz4 流数量异常: {len(mags)}'
-          s2 = mags[-1]
-          # 链式扫描该流结束 (兼容有无 0 end marker)
-          p = s2 + 4
-          while p + 4 <= len(vb):
-              if vb[p:p+4] == LZ4:
-                  break
-              n = struct.unpack_from('<I', vb, p)[0]
-              p += 4
-              if n == 0:
-                  break
-              if p + n > len(vb):
-                  break
-              p += n
-          open('recovery_stream.lz4','wb').write(vb[s2:p])
-          print(f'recovery_stream.lz4 = {p-s2} B')
-          PY
-          lz4 -d -l recovery_stream.lz4 recovery.cpio 2>/dev/null || true
+          echo "=== 1. 从构建产物提取 TWRP recovery cpio (健壮扫描: legacy+frame 兼容) ==="
+          python3 "$DEVICE_DIR/tools/extract_recovery.py" "$VENDOR_BOOT" recovery.cpio
+          ls -la recovery.cpio
           python3 -c "d=open('recovery.cpio','rb').read(6); assert d==b'070701', d; print('cpio OK,', __import__('os').path.getsize('recovery.cpio'), 'B')"
           echo "=== 2. 完整原厂 + TWRP 重打包 (TWRP 进 recovery 段/流2, 原厂 platform 段/流1 保留) ==="
           python3 "$DEVICE_DIR/tools/repack_vendor_boot_v2.py" \
