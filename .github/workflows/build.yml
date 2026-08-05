@@ -70,7 +70,7 @@ jobs:
             https://github.com/SHuiTU68/android_device_oneplus_emira/releases/download/stock-vendor-boot-v1/stock_vendor_boot.img
           ls -la $DEVICE_DIR/prebuilt/
           md5sum $DEVICE_DIR/prebuilt/stock_vendor_boot.img
-      - name: 后处理：完整原厂 vendor_boot 重打包 (方案B+KO合并: 修复 bootloop + 硬件功能)
+      - name: "后处理：完整原厂 vendor_boot 重打包 (方案B+KO合并: 修复 bootloop + 硬件功能)"
         run: |
           VENDOR_BOOT=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
           DEVICE_DIR=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1
