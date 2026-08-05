@@ -1,0 +1,123 @@
+name: Build OrangeFox Recovery
+on:
+  workflow_dispatch:
+  push:
+    branches: [device_OP60EDL1]
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Cleanup Actions Workspace
+        uses: rokibhasansagar/slimhub_actions@main
+      - name: 准备编译环境
+        run: |
+          sudo apt update && sudo apt upgrade -y
+          DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
+            git python3 tar aria2
+          git clone https://gitlab.com/OrangeFox/misc/scripts
+          cd scripts
+          sudo bash setup/android_build_env.sh
+          sed -i 's/cd -/cd ../g' setup/install_android_sdk.sh
+          sudo bash setup/install_android_sdk.sh
+      - name: 安装 OpenJDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '11'
+      - name: 创建工作目录
+        id: pwd
+        run: |
+          mkdir -p workspace
+          echo "workspace-folder=$(pwd)/workspace" >> $GITHUB_OUTPUT
+
+      - name: 同步 OrangeFox 源码
+        run: |
+          git clone https://gitlab.com/OrangeFox/sync.git
+          cd sync
+          ./orangefox_sync.sh --branch 14.1 --path ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1
+      - name: 检出设备树
+        run: |
+          git clone ${{ github.server_url }}/${{ github.repository }} \
+            -b ${{ github.ref_name }} \
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1
+      - name: 设置 Swap
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 12
+      - name: 编译 OrangeFox Recovery
+        run: |
+          cd ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1
+          source build/envsetup.sh
+          export ALLOW_MISSING_DEPENDENCIES=true
+          lunch twrp_OP60EDL1-ap2a-eng
+          make clean
+          mka adbd vendorbootimage -j$(nproc --all)
+
+      - name: 检查编译产物
+        run: |
+          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/ || true
+
+      - name: 下载原厂 vendor_boot (stock, 来自 Release)
+        run: |
+          DEVICE_DIR=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1
+          mkdir -p $DEVICE_DIR/prebuilt
+          curl -fL --retry 3 -o $DEVICE_DIR/prebuilt/stock_vendor_boot.img \
+            https://github.com/SHuiTU68/android_device_oneplus_emira/releases/download/stock-vendor-boot-v1/stock_vendor_boot.img
+          ls -la $DEVICE_DIR/prebuilt/
+          md5sum $DEVICE_DIR/prebuilt/stock_vendor_boot.img
+      - name: 后处理：完整原厂 vendor_boot 重打包 (方案B+KO合并: 修复 bootloop + 硬件功能)
+        run: |
+          VENDOR_BOOT=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
+          DEVICE_DIR=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/device/oplus/OP60EDL1
+          STOCK_VB=$DEVICE_DIR/prebuilt/stock_vendor_boot.img
+          if [ ! -f "$VENDOR_BOOT" ]; then
+            echo "vendor_boot.img 不存在，跳过后处理"
+            exit 0
+          fi
+          if [ ! -f "$STOCK_VB" ]; then
+            echo "错误: 缺少完整原厂 vendor_boot: $STOCK_VB"
+            echo "请从设备/官方包提取【完整】vendor_boot.img (含 platform+recovery 两段 ramdisk + dtb),"
+            echo "放到 prebuilt/stock_vendor_boot.img。不要用只有 header+dtb 的 stock_vendor_boot_template.bin。"
+            exit 1
+          fi
+          pip3 install lz4
+          sudo apt-get install -y lz4 >/dev/null 2>&1 || true
+          echo "=== 1. 从构建产物提取 recovery cpio (健壮扫描: legacy+frame 兼容) ==="
+          python3 "$DEVICE_DIR/tools/extract_recovery.py" "$VENDOR_BOOT" recovery.cpio
+          ls -la recovery.cpio
+          python3 -c "d=open('recovery.cpio','rb').read(6); assert d==b'070701', d; print('cpio OK,', __import__('os').path.getsize('recovery.cpio'), 'B')"
+          echo "=== 2. 合并原厂流1(platform) 的 .ko + modules.*** 进 TWRP recovery.cpio ==="
+          echo "    解决方案B 纯 TWRP 流1 缺 .ko (显示/触摸/充电/存储/oplus 全系列) 导致的功能残废"
+          echo "    合并后 cpio = TWRP init/recovery 二进制 + 原厂完整 .ko"
+          python3 "$DEVICE_DIR/tools/merge_ko_into_cpio.py" \
+            "$STOCK_VB" \
+            recovery.cpio recovery.merged.cpio
+          ls -la recovery.merged.cpio
+          python3 -c "d=open('recovery.merged.cpio','rb').read(6); assert d==b'070701', d; print('merged cpio OK,', __import__('os').path.getsize('recovery.merged.cpio'), 'B')"
+          echo "=== 3. 完整原厂 + 合并 cpio 重打包 (方案B+KO: 合并 cpio 进流1, 空 cpio 进流2) ==="
+          echo "    流1=合并 cpio (TWRP + 原厂.ko, 替换原厂 platform, 无 end marker 模仿原厂布局)"
+          echo "    流2=合法空 cpio (TRAILER, 有 end marker)"
+          python3 "$DEVICE_DIR/tools/repack_vendor_boot_v2.py" \
+            "$STOCK_VB" \
+            recovery.merged.cpio "${VENDOR_BOOT}.repacked" 100663296
+          echo "=== 4. 替换 vendor_boot.img ==="
+          cp "${VENDOR_BOOT}.repacked" "$VENDOR_BOOT"
+          echo "=== 5. 同步到 OrangeFox 镜像 ==="
+          FOX_IMG=${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/OrangeFox-R12.0-Unofficial-OP60EDL1.img
+          if [ -f "$FOX_IMG" ]; then
+            cp "$VENDOR_BOOT" "$FOX_IMG"
+          fi
+
+      - name: 上传编译产物（Artifact）
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrangeFox-OP60EDL1
+          path: |
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/vendor_boot.img
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_14.1/out/target/product/OP60EDL1/*.zip
+          if-no-files-found: warn
