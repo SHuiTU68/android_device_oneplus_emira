@@ -155,9 +155,17 @@ def find_dtb_start(d, after_off):
 def main():
     if len(sys.argv) < 4:
         print(__doc__)
+        print('\n用法: repack_vendor_boot_v2.py <原厂vendor_boot> <twrp/合并cpio> <输出> '
+              '[target_size] [--dtb <替换dtb文件>]')
         sys.exit(1)
     src, twrp_cpio, out = sys.argv[1], sys.argv[2], sys.argv[3]
-    target = int(sys.argv[4]) if len(sys.argv) > 4 else 100663296
+    target = int(sys.argv[4]) if len(sys.argv) > 4 and not sys.argv[4].startswith('--') else 100663296
+    # 可选: --dtb <文件>  用指定 dtb 替换原厂 dtb 段
+    dtb_replace = None
+    if '--dtb' in sys.argv:
+        i = sys.argv.index('--dtb')
+        if i + 1 < len(sys.argv):
+            dtb_replace = sys.argv[i + 1]
 
     d = open(src, 'rb').read()
     print(f'输入原厂 vendor_boot: {len(d)} B')
@@ -178,6 +186,16 @@ def main():
     dtb_data = d[dtb_off:dtb_off + dtb_size]
     print(f'原厂: 流1(platform)={len(s1_bytes)}B  流2(recovery)={len(s2_bytes)}B  '
           f'dtb@{dtb_off}({dtb_size}B)  vrs={vrs_old}')
+
+    # 可选: 用指定 dtb 替换原厂 dtb 段 (例如第三方内核配套的 dtb)
+    if dtb_replace:
+        new_dtb = open(dtb_replace, 'rb').read()
+        assert new_dtb[:4] in (b'\xd7\xb7\xab\x1e', b'\xd0\x0d\xfe\xed'), \
+            f'替换 dtb magic 非法: {new_dtb[:4].hex()}'
+        print(f'使用替换 dtb: {dtb_replace} ({len(new_dtb)}B, magic={new_dtb[:4].hex()})  '
+              f'替换原厂 dtb ({dtb_size}B)')
+        dtb_data = new_dtb
+        dtb_size = len(new_dtb)
 
     # 方案B+KO合并 (最终修复): 合并 cpio 放 流1, 空 cpio 放 流2
     # 流1 = 合并 cpio (TWRP + 原厂 .ko, 无 end marker, 模仿原厂流1, 后面直接接流2 magic)
@@ -217,6 +235,7 @@ def main():
     result = bytearray(target)
     result[:PAGE] = header
     struct.pack_into('<I', result, 24, new_vrs)   # 更新 vendor_ramdisk_size
+    struct.pack_into('<I', result, 2100, dtb_size)  # 更新 dtb_size (换 dtb 后大小会变)
     result[PAGE:PAGE+len(new_s1)] = new_s1
     result[PAGE+len(new_s1):PAGE+len(new_s1)+len(new_s2)] = new_s2
     result[new_dtb_off:new_dtb_off+dtb_size] = dtb_data
@@ -224,7 +243,7 @@ def main():
     open(out, 'wb').write(result)
     print(f'已写出: {out} ({len(result)} B)')
     print(f'验证: 4096+vrs={PAGE+new_vrs}  align={align_up(PAGE+new_vrs)}  dtb实际@{new_dtb_off}  '
-          f'ramdisk_end={ramdisk_end}  不重叠={"OK" if new_dtb_off>=ramdisk_end else "FAIL"}')
+          f'dtb_size={dtb_size}  ramdisk_end={ramdisk_end}  不重叠={"OK" if new_dtb_off>=ramdisk_end else "FAIL"}')
 
 if __name__ == '__main__':
     main()
