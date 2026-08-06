@@ -193,15 +193,24 @@ def main():
     twrp_entries = cpio_parse(twrp_cpio)
     print(f'  TWRP entries: {len(twrp_entries)}')
 
-    # 3. 收集原厂需要注入的文件 (lib/modules/ 下全部)
+    # 3. 收集原厂需要注入的文件 (lib/modules/ 下全部 + /init 符号链接)
     inject = {}  # name -> (mode, content)
     for name, mode, content in stock_entries:
         if name.startswith('lib/modules/'):
             inject[name] = (mode, content)
-    print(f'=== 3. 原厂 lib/modules/ 注入项: {len(inject)} ===')
+        elif name == 'init':
+            # 原厂 /init 是符号链接 -> /system/bin/init (系统 init 二进制入口)
+            # 必须覆盖 TWRP 的 recovery init, 否则系统模式加载流1 时
+            # recovery init 不挂 system -> 进不了系统
+            inject[name] = (mode, content)
+    print(f'=== 3. 原厂注入项: {len(inject)} ===')
     ko_count = sum(1 for n in inject if n.endswith('.ko'))
-    meta_count = len(inject) - ko_count
-    print(f'    .ko: {ko_count}  modules.*: {meta_count}')
+    meta_count = sum(1 for n in inject if n.startswith('lib/modules/') and not n.endswith('.ko'))
+    init_count = sum(1 for n in inject if n == 'init')
+    print(f'    .ko: {ko_count}  modules.*: {meta_count}  init符号链接: {init_count}')
+    if 'init' in inject:
+        m, c = inject['init']
+        print(f'    /init: mode={oct(m)} 链接目标={c.decode("latin-1", "replace")!r}')
 
     # 4. 合并: TWRP 为基底, 原厂 lib/modules/ 覆盖/补充
     print('=== 4. 合并 (TWRP 基底 + 原厂 lib/modules 覆盖) ===')
