@@ -259,3 +259,7 @@ TW_EXCLUDE_LPDUMP := true
 # 内核模块在 modules.load.recovery 中已列出，TWRP 会自动加载
 TW_LOAD_VENDOR_MODULES := "aw8697.ko haptic.ko haptic_feedback.ko"
 TW_SUPPORT_INPUT_AIDL_HAPTICS := true
+
+# -- RMX6688 TWRP port additions (kept minimal, no duplicates) --
+TW_BRIGHTNESS_PATH := "/sys/class/leds/lcd-backlight/brightness"
+SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy
