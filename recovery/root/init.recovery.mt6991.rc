@@ -12,6 +12,9 @@ on init
     # USB 控制器地址（来自 getprop sys.usb.controller）
     setprop sys.usb.controller "16701000.usb0"
     setprop sys.usb.ffs.aio_compat 1
+    # ★ RLIMIT_NICE —— mobicore(TEE) 在 init 下 exit 6 的根因（RMX6688 TWRP 移植经验）
+    setrlimit nice 40 40
+
     # Keep recovery/system libraries first. Some stock vendor libraries have the
     # same SONAME as recovery libraries but lack old symbols required by TWRP.
     export LD_LIBRARY_PATH /system/lib64:/system/lib:/vendor/lib64:/vendor/lib:/odm/lib64:/odm/lib:/vendor/odm/lib64:/vendor/odm/lib:/sbin
@@ -53,6 +56,10 @@ on post-fs
     symlink /dev/block/platform/soc/16810000.ufshci /dev/block/platform/bootdevice
     # 启动 MTK 平台路径工具
     start mtk.plpath.utils.link
+    # 内核模块（RMX6688 TWRP 移植经验: cpufreq 不加载会持续低频; omrg 为 oplus 电源管理）
+    insmod /lib/modules/oplus_bsp_omrg.ko
+    insmod /lib/modules/mediatek-cpufreq-hw.ko
+
 
     # 支持 UFS Boot Region 的 A/B 功能
     # sda = UFS Boot Region A (preloader_a)
