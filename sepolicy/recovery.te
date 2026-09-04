@@ -1,0 +1,246 @@
+# ============================================================
+# recovery 域访问 locksettings 密钥 —— 修「设了锁屏图案后 TWRP 解密失败」
+# ============================================================
+#
+# 【问题】
+#   设备设置锁屏图案后，TWRP 输入正确图案仍报解密失败。
+#   /tmp/recovery.log 里的失败序列：
+#     password type: pattern
+#     GateKeeper status ok                    ← 图案本身校验通过
+#     Attempting to unwrap synthetic password blob
+#     spblob v2 / v3
+#     Begin Operation failed                  ← 死在这里
+#     failed to unwrapSyntheticPasswordBlob
+#
+#   注意 GateKeeper status ok：gatekeeper 用图案算出的凭据哈希与
+#   /data/system_de/0/spblob/*.handle 完全匹配，所以图案没输错，
+#   失败发生在【之后】用 keystore2 解开 synthetic password blob 的环节。
+#
+# 【定位】
+#   recovery 里没有 logd（/system/bin/logd 二进制都不存在），logcat 必然失败。
+#   改用 liblog 的无-logd 旁路取到 keystore2 自己的日志：
+#     logger_write.cpp:291  读 ro.log.file_logger.path
+#     logger_write.cpp:314  fopen(path, "ae")
+#     logger_write.cpp:343  __android_log_logd_logger 开头即调用
+#   （该路径在进程内是 static 缓存，只读一次 → 必须先设属性再重启 keystore2）
+#
+#   拿到的关键三行：
+#     avc: denied { get_info }      scontext=u:r:recovery:s0
+#     avc: denied { use }           tcontext=u:object_r:locksettings_key:s0
+#     avc: denied { req_forced_op } tclass=keystore2_key permissive=1
+#
+#   req_forced_op 正是 createOperation(..., forced=true) 需要的权限：
+#     system/vold/Decrypt.cpp:620-622  第三个实参就是 true
+#     keystore2/src/permission.rs:84-85
+#       /// Checked when the caller attempts to create a forced operation.
+#       #[selinux(name = req_forced_op)]
+#
+# 【为什么 permissive=1 却仍然失败】
+#   那三条 denied 是【内核 avc】的记录，permissive 下只审计不阻断。
+#   但 keystore2 走的是【用户态 libselinux 的 avc】，从
+#   /plat_keystore2_key_contexts 自行加载策略并裁决：
+#     external/selinux/libselinux/src/checkAccess.c:64
+#         return avc_has_perm(scon_id, tcon_id, sclass, av, NULL, aux);
+#     keystore2/selinux/src/lib.rs:282
+#         io::ErrorKind::PermissionDenied => Err(anyhow!(Error::perm()))
+#   用户态判定不看内核的 permissive，直接把 PermissionDenied 转成错误返回，
+#   binder 异常上浮 → Decrypt.cpp:623 打印 "Begin Operation failed"。
+#
+# 【规则依据】
+#   正常系统里这件事由两个域分担，TWRP 在 recovery 域里要两者的并集：
+#     private/system_server.te:1100  allow system_server locksettings_key:keystore2_key
+#                                      { delete get_info rebind update use }
+#     private/vold.te:43-52          allow vold vold_key:keystore2_key
+#                                      { ... req_forced_op ... }   ← 全树唯一持有者
+#   而 private/recovery.te 里一条 keystore2 规则都没有。
+#
+# 【为什么只给三项】
+#   只补实测被拒的最小集合。不给 delete / update / rebind / manage_blob ——
+#   解密是只读操作，给写权限等于让 recovery 有能力破坏锁屏密钥。
+#
+# 【安全边界核对】
+#   · neverallow 只禁 keystore2_key 的 gen_unique_id 与 use_dev_id
+#     （private/domain.te:247-248），我们要的三项不在其中。
+#   · private/recovery.te:201-212 的两条 neverallow 只约束
+#     data_file_type 的 file/dir 写执行权限，与 keystore2_key 类无关。
+#
+# 【为什么放设备树而不是改 system/sepolicy/private/recovery.te】
+#   后者是 AOSP 上游文件，改它会在 repo sync 时冲突。
+#   本目录经 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS 进入 recovery 策略。
+#   ★ 注意不能用 BOARD_VENDOR_SEPOLICY_DIRS —— locksettings_key 是 private
+#     类型，而 vendor_sepolicy.conf 只吃 public，会报 unknown type 而编译失败。
+#     完整推导见 BoardConfig.mk 里该变量处的注释。
+#
+allow recovery locksettings_key:keystore2_key {
+    get_info
+    use
+    req_forced_op
+};
+
+# ============================================================
+# 第二个障碍：HardwareAuthToken 装不进 keystore2
+# ============================================================
+#
+# 上面三项补齐后，那三条 avc denied 确实消失了（dmesg 复核：只剩无害的
+# getattr，且能看到 keystore2 正常读 /sys/fs/selinux/class/keystore2_key/perms
+# 与写 /sys/fs/selinux/access）。但解密仍失败。
+#
+# 【拿到确切错误码的办法】
+#   上游 Decrypt.cpp:623 只 printf 一句 "Begin Operation failed"，把整个
+#   binder 异常丢弃 —— 而同一函数里 getKeyEntry 的失败分支（:613）却是
+#   打印 getDescription() 的，属上游疏漏。给它补上打印后（本地改动，
+#   见 system/vold/Decrypt.cpp 该处注释）一次就拿到了根因：
+#
+#     exception=-8 (EX_SERVICE_SPECIFIC)  service_specific=-26
+#     description=Status(-8, EX_SERVICE_SPECIFIC):
+#       '-26: system/security/keystore2/src/security_level.rs:328
+#        Caused by:
+#          0: system/security/keystore2/src/enforcements.rs:586:
+#             No suitable auth token for sids [-4979046690074311734]
+#             type Some(3) received in last 15s found.
+#          1: Error::Km(KEY_USER_NOT_AUTHENTICATED)'
+#
+#   注：keystore2 自己的 Rust 日志这条路走不通 —— recovery 没有 logd，
+#   而 ro.log.file_logger.path 旁路用的 filestream_logger
+#   （liblog/logger_write.cpp:258-285）从不 fflush，stdio 块缓冲 4096 B，
+#   日志量少时文件恒为 0 B。已在本地给它补 fflush（见该文件注释），
+#   但错误码从调用侧取更直接可靠。
+#
+# 【链路】
+#   锁屏密钥是 auth-bound 的（带 TAG_USER_SECURE_ID / TAG_USER_AUTH_TYPE），
+#   开操作前必须有一个 15 秒内的有效 HardwareAuthToken：
+#     enforcements.rs:578-587  find_auth_token(...).ok_or(KEY_USER_NOT_AUTHENTICATED)
+#     enforcements.rs:629-634  find_auth_token 只查 keystore2 自己的 DB
+#   token 的唯一入口是 android.security.authorization 的 addAuthToken：
+#     authorization.rs:107-123  add_auth_token()
+#         第一件事就是 check_keystore_permission(KeystorePerm::AddAuth)
+#     permission.rs:104-109
+#         #[selinux(class_name = keystore2)]  ← ★ 是 keystore2 类
+#         #[selinux(name = add_auth)] AddAuth
+#
+#   TWRP 侧确实调了，但【返回值被完全忽略】：
+#     Decrypt.cpp:1026-1033
+#         auto service = IKeystoreAuthorization::fromBinder(binder);
+#         if (service == NULL) { printf(...); }        ← 只判空
+#         auto binder_result = service->addAuthToken(authToken);
+#                              ^^^^^^^^^^^^^ 从不检查
+#   所以 add_auth 被拒时不报错、静默继续，直到 createOperation 才以
+#   KEY_USER_NOT_AUTHENTICATED 的形式暴露出来 —— 症状离病因隔了很远。
+#
+# 【规则依据】
+#   做同一件事的域是 gatekeeperd，它需要三样东西
+#   （private/gatekeeperd.te:28-30）：
+#       use_keystore(gatekeeperd)
+#       allow gatekeeperd keystore:keystore2 { add_auth };
+#       allow gatekeeperd authorization_service:service_manager find;
+#   fingerprintd.te:21 同样持有 add_auth。
+#   use_keystore 宏展开（public/te_macros:701-707）：
+#       allow $1 apc_service:service_manager find;
+#       allow $1 keystore_service:service_manager find;
+#       allow $1 legacykeystore_service:service_manager find;
+#       binder_call($1, keystore)
+#       binder_call(keystore, $1)
+#
+#   这里不用 use_keystore 宏，只挑实际需要的：
+#     · keystore_service find  —— getKeyEntry 已经在用（能成功是因为
+#       service_manager 侧走内核 avc 且 permissive=1；补上更稳妥）
+#     · authorization_service find —— AServiceManager_waitForService
+#       ("android.security.authorization") 需要
+#     · binder_call 双向 —— keystore2 需要回调查 caller 的 sid
+#     · keystore:keystore2 { add_auth } —— 用户态 avc 真正拦的那一项
+#   不给 apc_service / legacykeystore_service：TWRP 不用确认提示界面，
+#   也不走 legacy keystore。
+#
+# 【安全边界核对】
+#   keystore2 类的完整权限（private/access_vectors:726-745）：
+#     add_auth change_password change_user clear_ns clear_uid delete_all_keys
+#     early_boot_ended get_attestation_key get_auth_token get_last_auth_time
+#     get_state list lock pull_metrics report_off_body reset unlock
+#   只取 add_auth 一项。特意不给：
+#     · delete_all_keys / clear_ns / clear_uid —— 会销毁用户密钥
+#     · change_password / change_user —— 会改动锁屏凭据
+#     · unlock / lock / reset —— 会改设备锁定状态
+#   add_auth 只是"装入一个已由 TEE 签名的 auth token"，token 的真实性由
+#   KeyMint 校验 HMAC，recovery 无法伪造。
+allow recovery keystore:keystore2 {
+    add_auth
+};
+
+allow recovery keystore_service:service_manager find;
+allow recovery authorization_service:service_manager find;
+
+# keystore2 需要能回调 recovery（查询 caller sid），故双向。
+binder_call(recovery, keystore)
+binder_call(keystore, recovery)
+
+# ============================================================
+# 第三个障碍（真正的起点）：gatekeeper HAL 的 binder 调用被拒
+# ============================================================
+#
+# 前两处补完后依然失败。加上 result.isOk() 检查（本地改动，见
+# system/vold/Decrypt.cpp:957-981 处注释）后，2026-08-30 一次命中：
+#
+#   gatekeeper verify transaction failed
+#     exception=-129 service_specific=0
+#     description=Status(-129, EX_TRANSACTION_FAILED): 'PERMISSION_DENIED: '
+#
+# ★ 这推翻了此前全部基于日志的判断。
+#   aidl_gk_device->verify() 的 binder 调用【从一开始就被 SELinux 拒绝】，
+#   图案从未真正送到 TEE 验证过。
+#
+# 【为什么此前一直显示 "GateKeeper status ok"】
+#   TWRP 漏掉了上游的事务检查。对照
+#     system/core/gatekeeperd/gatekeeperd.cpp:338-341
+#         if (!result.isOk()) {
+#             LOG(ERROR) << "verify transaction failed";
+#             return GK_ERROR;
+#         }
+#   而 Decrypt.cpp 原本直接读 rsp.statusCode。binder 调用失败时 rsp 是
+#   【默认构造】的，statusCode 默认 0，恰好等于 AidlIGatekeeper::STATUS_OK，
+#   于是 `rsp.statusCode >= STATUS_OK` 成立 → 打印一句假的 ok。
+#
+#   这句假日志把排查带偏了两轮：我一直用它证明"图案正确、TEE 密钥材料完好"，
+#   还据此排除了 Weaver 硬件损坏一类的可能。它实际上什么都不能证明。
+#   教训：凡是上游把返回值丢弃的地方，其后续日志都不可信。
+#
+# 【为什么后面会报 KEY_USER_NOT_AUTHENTICATED】
+#   verify 失败 → rsp.hardwareAuthToken 是默认值、mac 为空
+#   → authToken2AidlVec（system/keymaster/ng/KeyMintUtils.cpp:125-126）
+#         if (!token.has_value()) return result;
+#         if (token->mac.size() != 32) return result;
+#     返回【空】vector
+#   → GKResponse::ok(空) → payload().size()==0
+#   → Decrypt.cpp 的 addAuthToken 整块被跳过（静默）
+#   → keystore2 里没有 auth token
+#   → createOperation → enforcements.rs:586 → KEY_USER_NOT_AUTHENTICATED(-26)
+#   一条错误链跨了三个模块，症状离病因隔了两层静默失败。
+#
+# 【根因】
+#   system/sepolicy/private/recovery.te 只声明了两个 HAL 客户端：
+#     :54  passthrough_hal_client_domain(recovery, hal_bootctl)
+#     :58  hal_client_domain(recovery, hal_health)
+#   TWRP 解密要用的 hal_gatekeeper 和 hal_keymint 都不在其中。
+#   上游 recovery 本身不做解密，所以从未需要过它们。
+#
+#   参照持有者：
+#     private/gatekeeperd.te:21  hal_client_domain(gatekeeperd, hal_gatekeeper)
+#   类型均已存在于 public，所有策略变体可见：
+#     public/attributes:363  hal_attribute(gatekeeper);
+#     public/attributes:378  hal_attribute(keymint);
+#     public/service.te:377  hal_gatekeeper_service, protected_service, ...
+#     public/service.te:336  hal_keymint_service, protected_service, ...
+#   服务上下文：
+#     private/service_contexts:111  android.hardware.gatekeeper.IGatekeeper/default
+#     private/service_contexts:108  android.hardware.security.keymint.IKeyMintDevice/default
+#
+# 【安全边界核对】
+#   · protected_service 的唯一 neverallow 是
+#       private/app_neverallows.te:254
+#         neverallow all_untrusted_apps protected_service:service_manager find;
+#     recovery 不属于 all_untrusted_apps → 不冲突。
+#   · hal_client_domain 只授予"调用该 HAL"的能力，不授予实现该 HAL 的权限；
+#     TEE 侧仍然独立校验图案，recovery 拿不到任何绕过手段。
+#   · 这两条本质上是把上游 gatekeeperd 的能力借给 recovery，而 recovery
+#     镜像不参与正常启动，作用面仅限 TWRP 运行期间。
+hal_client_domain(recovery, hal_gatekeeper)
+hal_client_domain(recovery, hal_keymint)
